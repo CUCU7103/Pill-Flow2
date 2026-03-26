@@ -100,27 +100,33 @@ export function StatsScreen() {
               <span className="text-sm font-bold text-gray-700">7일 연속</span>
             </div>
           </div>
-          <div className="flex items-end justify-between gap-1.5 h-24">
-            {WEEK_DAYS.map((day, i) => (
-              <div key={day} className="flex-1 flex flex-col items-center gap-2">
-                <div className="w-full rounded-xl relative overflow-hidden" style={{ height: `${BAR_HEIGHTS[i]}%` }}>
+          <div style={{ display: "flex", gap: "8px" }}>
+            {WEEK_DAYS.map((day, i) => {
+              const barH = Math.round((BAR_HEIGHTS[i] / 100) * 90);
+              const emptyH = 90 - barH;
+              const isToday = i === 4;
+              const isHigh = BAR_HEIGHTS[i] >= 90;
+              return (
+                <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <div style={{ height: `${emptyH}px` }} />
                   <div
-                    className="absolute inset-0 rounded-xl"
                     style={{
-                      background:
-                        i === 4
-                          ? "linear-gradient(135deg, #6C63FF 0%, #9B8FFF 100%)"
-                          : BAR_HEIGHTS[i] >= 90
-                          ? "linear-gradient(135deg, #06D6A0 0%, #4FACFE 100%)"
-                          : "#E8E8F0",
+                      width: "100%",
+                      height: `${barH}px`,
+                      borderRadius: "10px",
+                      background: isToday
+                        ? "linear-gradient(180deg, #6C63FF 0%, #9B8FFF 100%)"
+                        : isHigh
+                        ? "linear-gradient(180deg, #06D6A0 0%, #4FACFE 100%)"
+                        : "#E8E8F0",
                     }}
                   />
+                  <span style={{ fontSize: "10px", fontWeight: "700", color: isToday ? "#6C63FF" : "#9CA3AF", marginTop: "6px" }}>
+                    {day}
+                  </span>
                 </div>
-                <span className={`text-[10px] font-bold ${i === 4 ? "text-[#6C63FF]" : "text-gray-400"}`}>
-                  {day}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
