@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/pillflow/"
+title = "필플로우 (PillFlow)"
+version = "1.0.0"
+id = "artifacts/pillflow"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/pillflow/" ]
+localPort = 22690
+
+[services.development]
+run = "pnpm --filter @workspace/pillflow run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/pillflow", "run", "build" ]
+publicDir = "artifacts/pillflow/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22690"
+BASE_PATH = "/pillflow/"

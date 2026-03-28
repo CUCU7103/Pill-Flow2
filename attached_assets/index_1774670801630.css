@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme {
+  --font-headline: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-primary: #4f46e5;
+  --color-primary-container: #6366f1;
+  --color-on-primary: #ffffff;
+  --color-secondary: #06b6d4;
+  --color-secondary-container: #22d3ee;
+  --color-on-secondary-container: #083344;
+  --color-tertiary: #8b5cf6;
+  --color-tertiary-fixed: #ddd6fe;
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-container: #f1f5f9;
+  --color-surface-container-low: #f8fafc;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-high: #e2e8f0;
+  --color-surface-container-highest: #cbd5e1;
+  --color-on-surface: #0f172a;
+  --color-on-surface-variant: #475569;
+  --color-outline: #94a3b8;
+  --color-outline-variant: #e2e8f0;
+  --color-error: #ef4444;
+  --color-error-container: #fee2e2;
+  --color-success: #10b981;
+  --color-success-container: #d1fae5;
+}
+
+@layer base {
+  .dark {
+    --color-background: #09090b;
+    --color-surface: #09090b;
+    --color-surface-container: #121214;
+    --color-surface-container-low: #0e0e10;
+    --color-surface-container-lowest: #050505;
+    --color-surface-container-high: #1c1c1f;
+    --color-surface-container-highest: #27272a;
+    --color-on-surface: #f4f4f5;
+    --color-on-surface-variant: #a1a1aa;
+    --color-outline: #3f3f46;
+    --color-outline-variant: #27272a;
+    
+    --color-primary: #a5b4fc;
+    --color-primary-container: #312e81;
+    --color-on-primary: #1e1b4b;
+    --color-secondary: #7dd3fc;
+    --color-secondary-container: #0c4a6e;
+    --color-tertiary: #c084fc;
+    --color-tertiary-fixed: #4c1d95;
+    --color-success: #34d399;
+    --color-success-container: #064e3b;
+  }
+
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+  html, body, #root {
+    @apply h-full overflow-hidden;
+  }
+
+  body {
+    @apply bg-background text-on-surface font-body antialiased;
+  }
+}
+
+@layer utilities {
+  .editorial-shadow {
+    box-shadow: 0 20px 40px -12px rgba(15, 23, 42, 0.08);
+  }
+  .dark .editorial-shadow {
+    box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.4);
+  }
+  
+  .soft-shadow {
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+  }
+  .dark .soft-shadow {
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  }
+
+  .tinted-shadow {
+    box-shadow: 0 12px 32px -8px rgba(79, 70, 229, 0.12);
+  }
+  .dark .tinted-shadow {
+    box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-card {
+    @apply bg-surface/70 backdrop-blur-md border border-outline-variant/10;
+  }
+  .dark .glass-card {
+    @apply bg-surface/70 backdrop-blur-md border border-outline-variant/10;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
