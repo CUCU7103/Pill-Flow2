@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Pill, Clock, Check, Settings, Plus, ChevronLeft, ChevronRight,
@@ -490,6 +490,18 @@ function TimePicker({ onClose, onConfirm, dark }: {
   );
 }
 
+// ─── Field wrapper (must be defined outside AddView to avoid remount on rerender) ──
+function FormField({ label, children, cardBg, accentColor }: {
+  label: string; children: React.ReactNode; cardBg: string; accentColor: string;
+}) {
+  return (
+    <div className="rounded-2xl p-5 shadow-sm" style={{ backgroundColor: cardBg }}>
+      <p className="text-[10px] font-black uppercase tracking-widest mb-4" style={{ color: accentColor }}>{label}</p>
+      {children}
+    </div>
+  );
+}
+
 // ─── Add Medication View ───────────────────────────────────────────────────────
 function AddView({
   onBack, onSave, dark,
@@ -533,13 +545,6 @@ function AddView({
     onBack();
   };
 
-  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="rounded-2xl p-5 shadow-sm" style={{ backgroundColor: t.card }}>
-      <p className="text-[10px] font-black uppercase tracking-widest mb-4" style={{ color: "#6C63FF" }}>{label}</p>
-      {children}
-    </div>
-  );
-
   return (
     <div className="h-full overflow-y-auto hide-scrollbar" style={{ backgroundColor: t.bg }}>
       <div className="max-w-md mx-auto px-5 pt-14 pb-32 space-y-4">
@@ -556,7 +561,7 @@ function AddView({
         </div>
 
         {/* Name */}
-        <Field label="약 이름">
+        <FormField label="약 이름" cardBg={t.card} accentColor="#6C63FF">
           <div className="flex items-center gap-3 rounded-xl px-4 py-3 border-2"
             style={{ borderColor: name ? "#6C63FF" : t.divider, backgroundColor: t.surface }}>
             <Pill size={18} style={{ color: "#6C63FF" }} />
@@ -565,10 +570,10 @@ function AddView({
               className="flex-1 bg-transparent outline-none font-bold text-base"
               style={{ color: t.text }} />
           </div>
-        </Field>
+        </FormField>
 
         {/* Type */}
-        <Field label="약 유형">
+        <FormField label="약 유형" cardBg={t.card} accentColor="#6C63FF">
           <div className="grid grid-cols-3 gap-3">
             {([["pill", "알약", "💊"], ["capsule", "캡슐", "💊"], ["liquid", "액상", "💧"]] as const).map(([id, label, icon]) => (
               <button key={id} onClick={() => setType(id)}
@@ -582,10 +587,10 @@ function AddView({
               </button>
             ))}
           </div>
-        </Field>
+        </FormField>
 
         {/* Color */}
-        <Field label="색상">
+        <FormField label="색상" cardBg={t.card} accentColor="#6C63FF">
           <div className="flex gap-3 flex-wrap">
             {MED_COLORS.map(c => (
               <button key={c} onClick={() => setColor(c)}
@@ -597,10 +602,10 @@ function AddView({
                 }} />
             ))}
           </div>
-        </Field>
+        </FormField>
 
         {/* Time */}
-        <Field label="복용 시간">
+        <FormField label="복용 시간" cardBg={t.card} accentColor="#6C63FF">
           <div className="space-y-2">
             {[["🌅", "아침", "08:00"], ["☀️", "점심", "13:00"], ["🌙", "저녁", "19:00"]].map(([icon, label, t24]) => (
               <button key={t24} onClick={() => setTime(t24)}
@@ -627,10 +632,10 @@ function AddView({
               <ChevronRight size={16} style={{ color: t.subtext }} />
             </button>
           </div>
-        </Field>
+        </FormField>
 
         {/* Days */}
-        <Field label="반복 요일">
+        <FormField label="반복 요일" cardBg={t.card} accentColor="#6C63FF">
           <div className="flex justify-between">
             {["월", "화", "수", "목", "금", "토", "일"].map((d, i) => (
               <button key={d} onClick={() => setDays(p => p.includes(i) ? p.filter(x => x !== i) : [...p, i])}
@@ -643,10 +648,10 @@ function AddView({
               </button>
             ))}
           </div>
-        </Field>
+        </FormField>
 
         {/* Dosage & Remaining */}
-        <Field label="용량 / 잔여량">
+        <FormField label="용량 / 잔여량" cardBg={t.card} accentColor="#6C63FF">
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: "1회 용량 (정)", val: dosage, set: setDosage },
@@ -660,7 +665,7 @@ function AddView({
               </div>
             ))}
           </div>
-        </Field>
+        </FormField>
 
         {/* Save */}
         <button onClick={save} disabled={!name.trim()}
