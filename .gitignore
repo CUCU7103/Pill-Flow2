@@ -62,4 +62,20 @@ artifacts/pillflow/android/app/build/
 artifacts/pillflow/android/.gradle/
 artifacts/pillflow/android/build/
 artifacts/pillflow/android/local.properties
+artifacts/pillflow/android/capacitor-cordova-android-plugins/build/
+artifacts/pillflow/android/app/src/main/assets/
+
+# Android Studio 개인 환경 설정 (개발자별 종속)
+artifacts/pillflow/android/.idea/caches/
+artifacts/pillflow/android/.idea/workspace.xml
+artifacts/pillflow/android/.idea/gradle.xml
+artifacts/pillflow/android/.idea/vcs.xml
+artifacts/pillflow/android/.idea/deploymentTargetSelector.xml
+artifacts/pillflow/android/.idea/deviceManager.xml
+artifacts/pillflow/android/.idea/migrations.xml
+
+# Replit 잔여 파일
+.replit-artifact/
+attached_assets/
+
 .vercel
