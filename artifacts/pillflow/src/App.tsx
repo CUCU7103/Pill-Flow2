@@ -1,6 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
+import { App as CapApp } from "@capacitor/app";
 import { usePersisted } from "@/hooks/use-persisted";
 import { useDarkMode } from "@/hooks/use-theme";
 import { useMedications } from "@/hooks/use-medications";
@@ -64,6 +66,44 @@ export default function App() {
     await addMed(m);
     toast.success(`${m.name} 추가됨`);
   }, [addMed]);
+
+  // 두 번 누르면 종료 패턴을 위한 ref
+  const backPressedRef = useRef(false);
+  const backTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // 네이티브 앱(Android)에서만 뒤로가기 버튼 처리
+    if (!Capacitor.isNativePlatform()) return;
+
+    const listenerPromise = CapApp.addListener("backButton", () => {
+      // 설정 모달이 열려있으면 모달을 닫음
+      if (settingsOpen) {
+        setSettingsOpen(false);
+        return;
+      }
+      // add/stats 뷰에서는 today로 이동
+      if (view !== "today") {
+        setView("today");
+        return;
+      }
+      // today 뷰에서 이미 한 번 눌렀으면 앱 종료
+      if (backPressedRef.current) {
+        CapApp.exitApp();
+        return;
+      }
+      // today 뷰에서 첫 번째 누름 → 2초 내 다시 누르면 종료 안내
+      backPressedRef.current = true;
+      toast("한 번 더 누르면 앱이 종료됩니다", { duration: 2000 });
+      backTimerRef.current = setTimeout(() => {
+        backPressedRef.current = false;
+      }, 2000);
+    });
+
+    return () => {
+      listenerPromise.then((l) => l.remove());
+      if (backTimerRef.current) clearTimeout(backTimerRef.current);
+    };
+  }, [view, settingsOpen]);
 
   const handleSignOut = useCallback(async () => {
     try {
