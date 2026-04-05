@@ -44,6 +44,22 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
+# 환경 변수 (Supabase 키 등)
+.env*.local
+
+# Claude Code 로컬 설정 (개인 권한 설정)
+.claude/settings.local.json
+
+# Playwright MCP 테스트 아티팩트
+.playwright-mcp/
+
 # Replit
 .cache/
 .local/
+
+# Capacitor Android 빌드 아티팩트
+artifacts/pillflow/android/app/build/
+artifacts/pillflow/android/.gradle/
+artifacts/pillflow/android/build/
+artifacts/pillflow/android/local.properties
+.vercel

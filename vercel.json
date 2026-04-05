@@ -1,0 +1,8 @@
+{
+  "buildCommand": "pnpm --filter @workspace/pillflow build",
+  "outputDirectory": "artifacts/pillflow/dist/public",
+  "installCommand": "pnpm install",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

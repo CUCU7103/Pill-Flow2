@@ -3,9 +3,40 @@
 
 @theme inline {
   --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+
+  /* 커스텀 색상 토큰 */
+  --color-accent: #6C63FF;
+  --color-accent-light: #9B8FFF;
+  --color-accent-hover: #5A52E0;
+  --color-danger: #FF6584;
+  --color-success: #06D6A0;
+  --color-warning: #FFD166;
+  --color-info: #4FACFE;
 }
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
+  :root {
+    --pf-bg: #F5F7FF;
+    --pf-card: #FFFFFF;
+    --pf-surface: #F9FAFB;
+    --pf-text: #111827;
+    --pf-subtext: #6B7280;
+    --pf-divider: #F3F4F6;
+    --pf-nav-bg: rgba(255,255,255,0.95);
+  }
+
+  .dark {
+    --pf-bg: #0D1117;
+    --pf-card: #161B22;
+    --pf-surface: #111827;
+    --pf-text: #F0F6FC;
+    --pf-subtext: #8B949E;
+    --pf-divider: #21262D;
+    --pf-nav-bg: rgba(22,27,34,0.95);
+  }
+
   html, body, #root {
     height: 100%;
   }
@@ -13,10 +44,23 @@
   body {
     font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
+    background-color: var(--pf-bg);
+    color: var(--pf-text);
   }
 }
 
 @layer utilities {
   .hide-scrollbar::-webkit-scrollbar { display: none; }
   .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* 테마 유틸리티 클래스 */
+  .bg-pf-bg { background-color: var(--pf-bg); }
+  .bg-pf-card { background-color: var(--pf-card); }
+  .bg-pf-surface { background-color: var(--pf-surface); }
+  .text-pf-text { color: var(--pf-text); }
+  .text-pf-subtext { color: var(--pf-subtext); }
+  .border-pf-divider { border-color: var(--pf-divider); }
+  .bg-pf-divider { background-color: var(--pf-divider); }
+  .bg-pf-nav { background-color: var(--pf-nav-bg); }
+  .divide-pf-divider > :not(:last-child) { border-color: var(--pf-divider); }
 }

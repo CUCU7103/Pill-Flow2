@@ -25,7 +25,16 @@ app.use(
     },
   }),
 );
-app.use(cors());
+
+// CORS: 개발 시 모든 origin 허용, 프로덕션에서는 ALLOWED_ORIGIN으로 제한
+const allowedOrigin = process.env.ALLOWED_ORIGIN;
+app.use(
+  cors({
+    origin: allowedOrigin || true,
+    credentials: true,
+  }),
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
