@@ -67,12 +67,8 @@ export function TodayView({
               <h1
                 className="text-xl font-extrabold leading-tight"
                 style={{
-                  background: dark
-                    ? "linear-gradient(135deg,#F0F6FC,#9B8FFF)"
-                    : "linear-gradient(135deg,#1A1A2E,#6C63FF)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
+                  // Android WebView는 background-clip: text 미지원 → 단색으로 처리
+                  color: dark ? "#C4B5FD" : "#6C63FF",
                 }}
               >
                 필플로우

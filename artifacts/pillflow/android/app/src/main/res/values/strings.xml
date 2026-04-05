@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PillFlow</string>
+    <string name="title_activity_main">PillFlow</string>
+    <string name="package_name">com.pillflow.app</string>
+    <string name="custom_url_scheme">com.pillflow.app</string>
+</resources>
