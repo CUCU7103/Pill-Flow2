@@ -43,17 +43,21 @@ export default function App() {
 
   // Supabase 기반 약 데이터 (로그인 후에만 사용)
   // user.id를 전달해 RLS insert 시 user_id가 포함되도록 함
-  const { meds, loading: medsLoading, addMed, deleteMed, toggleMed } = useMedications(user?.id);
+  const { meds, loading: medsLoading, addMed, deleteMed, toggleMed, resetAll } = useMedications(user?.id);
 
   // 복약 알림 스케줄링 (네이티브 앱에서만 동작)
   useNotifications(meds, notif);
 
   const handleToggle = useCallback(async (id: string) => {
     const med = meds.find((m) => m.id === id);
-    if (med) {
-      toast.success(med.completed ? `${med.name} 복용 취소` : `${med.name} 복용 완료`);
+    try {
+      await toggleMed(id);
+      if (med) {
+        toast.success(med.completed ? `${med.name} 복용 취소` : `${med.name} 복용 완료`);
+      }
+    } catch {
+      toast.error("처리에 실패했습니다. 다시 시도해주세요.");
     }
-    await toggleMed(id);
   }, [meds, toggleMed]);
 
   const handleDelete = useCallback(async (id: string) => {
@@ -194,6 +198,7 @@ export default function App() {
             onAlarmChange={setAlarm}
             user={user}
             onSignOut={handleSignOut}
+            onResetAll={resetAll}
           />
         )}
       </AnimatePresence>

@@ -85,8 +85,6 @@ export function useMedications(userId?: string) {
           category: data.category,
           type: data.type,
           color: data.color,
-          // RLS 정책 적용: 본인 데이터임을 명시
-          user_id: userId,
         })
         .select()
         .single();
@@ -122,8 +120,7 @@ export function useMedications(userId?: string) {
         // 복용 기록 추가
         const { error: err } = await supabase
           .from("medication_logs")
-          // RLS 정책 적용: 본인 데이터임을 명시
-          .insert({ medication_id: id, date: today, user_id: userId });
+          .insert({ medication_id: id, date: today });
         if (err) throw err;
       } else {
         // 복용 기록 삭제 (오늘 것만)
@@ -134,15 +131,34 @@ export function useMedications(userId?: string) {
           .eq("date", today);
         if (err) throw err;
       }
-    } catch {
-      // 실패 시 롤백
+    } catch (err) {
+      // DB 실패 시 낙관적 업데이트 롤백
       setMeds((prev) =>
         prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m)),
       );
+      throw err;
     }
   }, [meds]);
 
-  return { meds, loading, error, addMed, deleteMed, toggleMed, refetch: fetchMeds };
+  /** 모든 복용 기록과 약 데이터를 삭제 (RLS로 본인 데이터만 삭제됨) */
+  const resetAll = useCallback(async () => {
+    // medication_logs → medications 순서로 삭제 (외래 키 의존성)
+    const { error: logsErr } = await supabase
+      .from("medication_logs")
+      .delete()
+      .neq("medication_id", "");
+    if (logsErr) throw logsErr;
+
+    const { error: medsErr } = await supabase
+      .from("medications")
+      .delete()
+      .neq("id", "");
+    if (medsErr) throw medsErr;
+
+    setMeds([]);
+  }, []);
+
+  return { meds, loading, error, addMed, deleteMed, toggleMed, refetch: fetchMeds, resetAll };
 }
 
 // ─── 통계 훅 ─────────────────────────────────────────────────────────────────

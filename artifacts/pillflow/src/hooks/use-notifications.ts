@@ -22,12 +22,32 @@ export function useNotifications(meds: Medication[], notif: boolean) {
   }, [meds, notif]);
 }
 
+/** 알림 채널 생성 (Android 8.0+ 필수 - 채널 단위로 소리/진동 설정) */
+async function ensureNotificationChannel() {
+  // Android 전용 API이며, iOS/웹에서는 무시됨
+  try {
+    await LocalNotifications.createChannel({
+      id: "pillflow-reminders",
+      name: "복약 알림",
+      description: "복약 시간을 알려주는 알림",
+      importance: 5, // IMPORTANCE_HIGH: 상단 배너 + 소리
+      sound: "default", // 기기 기본 알림음 사용
+      vibration: true,
+    });
+  } catch {
+    // 채널 생성 실패해도 알림 스케줄링은 계속 진행
+  }
+}
+
 /** 모든 기존 알림을 취소하고 현재 약 목록으로 재스케줄링 */
 async function scheduleNotifications(meds: Medication[]) {
   try {
     // 알림 권한 요청 (Android 13+ / iOS는 반드시 필요)
     const { display } = await LocalNotifications.requestPermissions();
     if (display !== "granted") return;
+
+    // Android 채널 생성 (소리/진동 포함)
+    await ensureNotificationChannel();
 
     // 기존 알림을 모두 취소하고 새로 스케줄링 (중복 방지)
     await cancelAllNotifications();
@@ -59,7 +79,8 @@ async function scheduleNotifications(meds: Medication[]) {
           repeats: true,
           every: "day",
         },
-        sound: undefined,
+        // Android: 채널에서 소리/진동을 제어하므로 여기선 채널 ID만 지정
+        channelId: "pillflow-reminders",
         attachments: undefined,
         actionTypeId: "",
         extra: { medicationId: med.id },
