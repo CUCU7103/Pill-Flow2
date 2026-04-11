@@ -25,28 +25,42 @@ function getToday() {
 
 /**
  * 복약 데이터를 관리하는 훅
- * @param userId 현재 로그인한 사용자 ID - insert 시 user_id 컬럼에 포함
+ * @param userId 현재 로그인한 사용자 ID - 모든 쿼리에서 해당 유저의 데이터만 조회/수정
  */
 export function useMedications(userId?: string) {
   const [meds, setMeds] = useState<Medication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 약 목록 + 오늘 복용 기록 조회
+  // 약 목록 + 오늘 복용 기록 조회 (userId 기준으로 필터)
   const fetchMeds = useCallback(async () => {
+    // 로그인 전이면 데이터 초기화
+    if (!userId) {
+      setMeds([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       const today = getToday();
 
+      // medications는 user_id 컬럼으로 현재 유저 데이터만 조회
       const [medsRes, logsRes] = await Promise.all([
-        supabase.from("medications").select("*").order("created_at"),
+        supabase.from("medications").select("*").eq("user_id", userId).order("created_at"),
         supabase.from("medication_logs").select("medication_id").eq("date", today),
       ]);
 
       if (medsRes.error) throw medsRes.error;
       if (logsRes.error) throw logsRes.error;
 
+      // 현재 유저의 약 id 목록
+      const myMedIds = new Set((medsRes.data ?? []).map((r: { id: string }) => r.id));
+
+      // 오늘 복용 완료된 약 중 현재 유저 소유의 것만 필터
       const completedIds = new Set(
-        (logsRes.data ?? []).map((l: { medication_id: string }) => l.medication_id),
+        (logsRes.data ?? [])
+          .map((l: { medication_id: string }) => l.medication_id)
+          .filter((id) => myMedIds.has(id)),
       );
 
       setMeds((medsRes.data ?? []).map((row) => toMedication(row, completedIds)));
@@ -56,13 +70,13 @@ export function useMedications(userId?: string) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]); // userId가 변경되면 재조회
 
   useEffect(() => {
     fetchMeds();
   }, [fetchMeds]);
 
-  // 약 추가
+  // 약 추가 - user_id 포함하여 insert
   const addMed = useCallback(
     async (data: {
       name: string;
@@ -77,6 +91,7 @@ export function useMedications(userId?: string) {
       const { data: row, error: err } = await supabase
         .from("medications")
         .insert({
+          user_id: userId, // 현재 유저 소유로 저장
           name: data.name,
           dosage: data.dosage,
           dosage_amount: data.dosageAmount,
@@ -94,7 +109,7 @@ export function useMedications(userId?: string) {
       setMeds((prev) => [...prev, med]);
       return med;
     },
-    [],
+    [userId],
   );
 
   // 약 삭제
@@ -108,6 +123,7 @@ export function useMedications(userId?: string) {
   const toggleMed = useCallback(async (id: string) => {
     const today = getToday();
 
+    // 낙관적 UI 업데이트
     setMeds((prev) =>
       prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m)),
     );
@@ -140,41 +156,66 @@ export function useMedications(userId?: string) {
     }
   }, [meds]);
 
-  /** 모든 복용 기록과 약 데이터를 삭제 (RLS로 본인 데이터만 삭제됨) */
+  /**
+   * 현재 유저의 모든 복용 기록과 약 데이터를 삭제
+   * medications 삭제 시 해당 유저 데이터만 필터링
+   */
   const resetAll = useCallback(async () => {
-    // medication_logs → medications 순서로 삭제 (외래 키 의존성)
-    const { error: logsErr } = await supabase
-      .from("medication_logs")
-      .delete()
-      .neq("medication_id", "");
-    if (logsErr) throw logsErr;
+    if (!userId) return;
 
+    // 현재 유저의 약 id 목록 조회
+    const { data: myMeds, error: fetchErr } = await supabase
+      .from("medications")
+      .select("id")
+      .eq("user_id", userId);
+    if (fetchErr) throw fetchErr;
+
+    const myMedIds = (myMeds ?? []).map((m: { id: string }) => m.id);
+
+    // 해당 약들의 복용 기록 삭제 (medication_logs → medications 순서)
+    if (myMedIds.length > 0) {
+      const { error: logsErr } = await supabase
+        .from("medication_logs")
+        .delete()
+        .in("medication_id", myMedIds);
+      if (logsErr) throw logsErr;
+    }
+
+    // 현재 유저의 약 삭제
     const { error: medsErr } = await supabase
       .from("medications")
       .delete()
-      .neq("id", "");
+      .eq("user_id", userId);
     if (medsErr) throw medsErr;
 
     setMeds([]);
-  }, []);
+  }, [userId]);
 
   return { meds, loading, error, addMed, deleteMed, toggleMed, refetch: fetchMeds, resetAll };
 }
 
 // ─── 통계 훅 ─────────────────────────────────────────────────────────────────
-export function useStats(totalMeds: number) {
+export function useStats(totalMeds: number, userId?: string) {
   const [weeklyData, setWeeklyData] = useState<{ day: string; rate: number }[]>([]);
   const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchStats() {
+      // 로그인 전이면 빈 데이터
+      if (!userId) {
+        setWeeklyData([]);
+        setStreak(0);
+        setLoading(false);
+        return;
+      }
+
       try {
         const days = ["일", "월", "화", "수", "목", "금", "토"];
         const stats: { day: string; rate: number }[] = [];
         const total = totalMeds || 1;
 
-        // 최근 7일 복용 기록 조회
+        // 최근 7일 날짜 목록 생성
         const dates: string[] = [];
         for (let i = 6; i >= 0; i--) {
           const d = new Date();
@@ -182,10 +223,21 @@ export function useStats(totalMeds: number) {
           dates.push(d.toISOString().split("T")[0]);
         }
 
+        // 현재 유저의 약 id 목록 조회
+        const { data: myMeds, error: medsErr } = await supabase
+          .from("medications")
+          .select("id")
+          .eq("user_id", userId);
+        if (medsErr) throw medsErr;
+
+        const myMedIds = (myMeds ?? []).map((m: { id: string }) => m.id);
+
+        // 현재 유저의 약에 대한 복용 기록만 조회
         const { data: logs, error: err } = await supabase
           .from("medication_logs")
           .select("medication_id, date")
-          .in("date", dates);
+          .in("date", dates)
+          .in("medication_id", myMedIds.length > 0 ? myMedIds : [""]);
 
         if (err) throw err;
 
@@ -226,7 +278,7 @@ export function useStats(totalMeds: number) {
     }
 
     fetchStats();
-  }, [totalMeds]);
+  }, [totalMeds, userId]);
 
   return { weeklyData, streak, loading };
 }

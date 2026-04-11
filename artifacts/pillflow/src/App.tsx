@@ -53,9 +53,12 @@ export default function App() {
     try {
       await toggleMed(id);
       if (med) {
+        // 이전 토스트를 모두 제거하고 새 토스트 표시 (중복 쌓임 방지)
+        toast.dismiss();
         toast.success(med.completed ? `${med.name} 복용 취소` : `${med.name} 복용 완료`);
       }
     } catch {
+      toast.dismiss();
       toast.error("처리에 실패했습니다. 다시 시도해주세요.");
     }
   }, [meds, toggleMed]);
@@ -176,7 +179,7 @@ export default function App() {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.2 }}
             >
-              <StatsView meds={meds} dark={dark} />
+              <StatsView meds={meds} dark={dark} userId={user?.id} />
             </motion.div>
           )}
         </AnimatePresence>

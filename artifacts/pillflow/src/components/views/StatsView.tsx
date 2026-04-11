@@ -7,13 +7,13 @@ import { MedIcon } from "@/components/common/MedIcon";
 import type { Medication } from "@/types";
 
 /** 통계 화면 */
-export function StatsView({ meds, dark }: { meds: Medication[]; dark: boolean }) {
+export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: boolean; userId?: string }) {
   const t = useTheme(dark);
   const completed = meds.filter((m) => m.completed).length;
   const total = meds.length;
 
-  // Supabase에서 실제 통계 데이터 조회
-  const { weeklyData, streak } = useStats(total);
+  // Supabase에서 현재 유저의 실제 통계 데이터 조회
+  const { weeklyData, streak } = useStats(total, userId);
 
   const weekRate = weeklyData.length > 0
     ? Math.round(weeklyData.reduce((a, d) => a + d.rate, 0) / weeklyData.length)

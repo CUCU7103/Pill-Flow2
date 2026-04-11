@@ -29,6 +29,7 @@ if (Capacitor.isNativePlatform()) {
 createRoot(document.getElementById("root")!).render(
   <>
     <App />
-    <Toaster position="top-center" richColors />
+    {/* visibleToasts={1}: 동시에 하나의 토스트만 표시, 새 토스트 발생 시 이전 토스트 자동 제거 */}
+    <Toaster position="top-center" richColors visibleToasts={1} toastOptions={{ duration: 2500 }} />
   </>,
 );
