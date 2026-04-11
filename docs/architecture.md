@@ -132,7 +132,7 @@ medications (약 정보)
 ├── remaining_quantity INT 잔여 수량 (기본값: 30)
 ├── time          TEXT  복용 시간
 ├── category      ENUM  morning / lunch / evening
-├── type          ENUM  pill / capsule / liquid
+├── type          ENUM  pill / capsule / liquid / packet
 ├── color         TEXT  앱 표시 색상 (기본값: #6C63FF)
 ├── created_at    TIMESTAMP
 └── updated_at    TIMESTAMP

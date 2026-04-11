@@ -7,6 +7,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { MedIcon } from "@/components/common/MedIcon";
 import { DeleteModal } from "@/components/modals/DeleteModal";
 import type { Medication } from "@/types";
+import { getQuantityUnit } from "@/types";
 
 /** 오늘의 복용 현황 화면 */
 export function TodayView({
@@ -213,7 +214,7 @@ export function TodayView({
                             color: med.remainingQuantity < 10 ? "#FF6584" : "#06D6A0",
                           }}
                         >
-                          잔여 {med.remainingQuantity}개
+                          잔여 {med.remainingQuantity}{getQuantityUnit(med.type)}
                         </span>
                       </div>
                     </div>
