@@ -3,7 +3,7 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // ─── 약 유형 Enum ────────────────────────────────────────────────────────────
-export const medTypeEnum = pgEnum("med_type", ["pill", "capsule", "liquid"]);
+export const medTypeEnum = pgEnum("med_type", ["pill", "capsule", "liquid", "packet"]);
 
 // ─── 복용 시간대 Enum ────────────────────────────────────────────────────────
 export const categoryEnum = pgEnum("category", ["morning", "lunch", "evening"]);

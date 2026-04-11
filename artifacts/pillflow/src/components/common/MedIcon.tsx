@@ -1,9 +1,18 @@
-import { Pill, Activity, Droplets } from "lucide-react";
+import { Pill, Activity, Droplets, Package } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { MedType } from "@/types";
+
+/** 약 유형 → 아이콘 매핑 (새 타입 추가 시 이 맵에만 추가) */
+const MED_ICON_MAP: Record<MedType, LucideIcon> = {
+  capsule: Pill,
+  pill: Activity,
+  packet: Package,
+  liquid: Droplets,
+};
 
 /** 약 유형별 아이콘 컴포넌트 */
 export function MedIcon({ type, color }: { type: MedType; color: string }) {
-  const Icon = type === "capsule" ? Pill : type === "pill" ? Activity : Droplets;
+  const Icon = MED_ICON_MAP[type];
   return (
     <div
       className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"

@@ -7,7 +7,12 @@ export type View = "today" | "add" | "stats";
 export type Category = "morning" | "lunch" | "evening";
 
 /** 약의 형태 */
-export type MedType = "pill" | "capsule" | "liquid";
+export type MedType = "pill" | "capsule" | "liquid" | "packet";
+
+/** 약 타입별 잔여량 단위를 반환 */
+export function getQuantityUnit(type: MedType): string {
+  return type === "packet" ? "포" : "개";
+}
 
 /** 약 정보 인터페이스 */
 export interface Medication {

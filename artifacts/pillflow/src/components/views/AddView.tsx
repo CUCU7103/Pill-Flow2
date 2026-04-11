@@ -1,11 +1,20 @@
 import { useState } from "react";
 import { AnimatePresence } from "framer-motion";
-import { Pill, ChevronLeft, Clock, ChevronRight, Circle, Droplets } from "lucide-react";
+import {
+  Pill,
+  ChevronLeft,
+  Clock,
+  ChevronRight,
+  Circle,
+  Droplets,
+  Package,
+} from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { FormField } from "@/components/common/FormField";
 import { TimePicker } from "@/components/modals/TimePicker";
 import { MED_COLORS } from "@/constants";
 import type { Medication, MedType, Category } from "@/types";
+import { getQuantityUnit } from "@/types";
 
 /** 새 약 추가 시 전달할 데이터 (id, completed 제외) */
 type NewMedication = Omit<Medication, "id" | "completed">;
@@ -29,6 +38,8 @@ export function AddView({
   const [days, setDays] = useState([0, 1, 2, 3, 4, 5, 6]);
   const [showPicker, setShowPicker] = useState(false);
   const t = useTheme(dark);
+  const doseUnit = type === "packet" ? "포" : "정";
+  const remainingUnit = getQuantityUnit(type); // 잔여량 단위는 공통 유틸 사용
 
   const formatDisplay = (raw: string) => {
     const [hh, mm] = raw.split(":");
@@ -46,7 +57,7 @@ export function AddView({
     if (h >= 16) cat = "evening";
     onSave({
       name: name.trim(),
-      dosage: `${dosage}정`,
+      dosage: `${dosage}${doseUnit}`,
       dosageAmount: parseInt(dosage) || 1,
       remainingQuantity: parseInt(remaining) || 0,
       time: formatDisplay(time),
@@ -58,7 +69,10 @@ export function AddView({
   };
 
   return (
-    <div className="h-full overflow-y-auto hide-scrollbar" style={{ backgroundColor: t.bg }}>
+    <div
+      className="h-full overflow-y-auto hide-scrollbar"
+      style={{ backgroundColor: t.bg }}
+    >
       <div className="max-w-md mx-auto px-5 pt-14 pb-32 space-y-4">
         {/* 헤더 */}
         <header className="flex items-center gap-4 mb-2">
@@ -103,14 +117,17 @@ export function AddView({
 
         {/* 약 유형 */}
         <FormField label="약 유형" cardBg={t.card} accentColor="#6C63FF">
-          <div className="grid grid-cols-3 gap-3" role="radiogroup" aria-label="약 유형 선택">
-            {(
-              [
-                { id: "pill" as const, label: "알약", Icon: Circle },
-                { id: "capsule" as const, label: "캡슐", Icon: Pill },
-                { id: "liquid" as const, label: "액상", Icon: Droplets },
-              ]
-            ).map(({ id, label, Icon }) => (
+          <div
+            className="grid grid-cols-2 gap-3"
+            role="radiogroup"
+            aria-label="약 유형 선택"
+          >
+            {[
+              { id: "pill" as const, label: "알약", Icon: Circle },
+              { id: "capsule" as const, label: "캡슐", Icon: Pill },
+              { id: "liquid" as const, label: "액상", Icon: Droplets },
+              { id: "packet" as const, label: "포장약", Icon: Package },
+            ].map(({ id, label, Icon }) => (
               <button
                 key={id}
                 onClick={() => setType(id)}
@@ -122,7 +139,10 @@ export function AddView({
                   color: type === id ? "#fff" : t.subtext,
                 }}
               >
-                <Icon size={28} fill={type === id ? "rgba(255,255,255,0.3)" : "none"} />
+                <Icon
+                  size={28}
+                  fill={type === id ? "rgba(255,255,255,0.3)" : "none"}
+                />
                 {label}
               </button>
             ))}
@@ -131,7 +151,11 @@ export function AddView({
 
         {/* 색상 */}
         <FormField label="색상" cardBg={t.card} accentColor="#6C63FF">
-          <div className="flex gap-3 flex-wrap" role="radiogroup" aria-label="색상 선택">
+          <div
+            className="flex gap-3 flex-wrap"
+            role="radiogroup"
+            aria-label="색상 선택"
+          >
             {MED_COLORS.map((c) => (
               <button
                 key={c}
@@ -152,7 +176,11 @@ export function AddView({
 
         {/* 복용 시간 */}
         <FormField label="복용 시간" cardBg={t.card} accentColor="#6C63FF">
-          <div className="space-y-2" role="radiogroup" aria-label="복용 시간 선택">
+          <div
+            className="space-y-2"
+            role="radiogroup"
+            aria-label="복용 시간 선택"
+          >
             {[
               ["🌅", "아침", "08:00"],
               ["☀️", "점심", "13:00"],
@@ -207,7 +235,9 @@ export function AddView({
               <button
                 key={d}
                 onClick={() =>
-                  setDays((p) => (p.includes(i) ? p.filter((x) => x !== i) : [...p, i]))
+                  setDays((p) =>
+                    p.includes(i) ? p.filter((x) => x !== i) : [...p, i],
+                  )
                 }
                 aria-pressed={days.includes(i)}
                 className="w-10 h-10 rounded-xl font-bold text-xs transition-all active:scale-90 min-w-[44px] min-h-[44px]"
@@ -226,11 +256,18 @@ export function AddView({
         <FormField label="용량 / 잔여량" cardBg={t.card} accentColor="#6C63FF">
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: "1회 용량 (정)", val: dosage, set: setDosage },
-              { label: "총 잔여량 (개)", val: remaining, set: setRemaining },
+              { label: `1회 용량 (${doseUnit})`, val: dosage, set: setDosage },
+              {
+                label: `총 잔여량 (${remainingUnit})`,
+                val: remaining,
+                set: setRemaining,
+              },
             ].map(({ label, val, set }) => (
               <div key={label}>
-                <p className="text-[10px] font-bold mb-2" style={{ color: t.subtext }}>
+                <p
+                  className="text-[10px] font-bold mb-2"
+                  style={{ color: t.subtext }}
+                >
                   {label}
                 </p>
                 <input
@@ -263,7 +300,11 @@ export function AddView({
 
       <AnimatePresence>
         {showPicker && (
-          <TimePicker dark={dark} onClose={() => setShowPicker(false)} onConfirm={setTime} />
+          <TimePicker
+            dark={dark}
+            onClose={() => setShowPicker(false)}
+            onConfirm={setTime}
+          />
         )}
       </AnimatePresence>
     </div>

@@ -5,6 +5,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useStats } from "@/hooks/use-medications";
 import { MedIcon } from "@/components/common/MedIcon";
 import type { Medication } from "@/types";
+import { getQuantityUnit } from "@/types";
 
 /** 통계 화면 */
 export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: boolean; userId?: string }) {
@@ -154,7 +155,7 @@ export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: bo
                           {med.name}
                         </p>
                         <p className="text-[10px]" style={{ color: t.subtext }}>
-                          잔여 {med.remainingQuantity}개
+                          잔여 {med.remainingQuantity}{getQuantityUnit(med.type)}
                         </p>
                       </div>
                     </div>
