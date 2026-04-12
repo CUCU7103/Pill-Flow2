@@ -65,8 +65,12 @@ export default function App() {
 
   const handleDelete = useCallback(async (id: string) => {
     const med = meds.find((m) => m.id === id);
-    await deleteMed(id);
-    if (med) toast.success(`${med.name} 삭제됨`);
+    try {
+      await deleteMed(id);
+      if (med) toast.success(`${med.name} 삭제됨`);
+    } catch {
+      toast.error("삭제에 실패했습니다. 다시 시도해주세요.");
+    }
   }, [meds, deleteMed]);
 
   const handleAdd = useCallback(async (m: Omit<Medication, "id" | "completed">) => {
