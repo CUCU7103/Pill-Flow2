@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   Pill,
@@ -9,6 +9,7 @@ import {
   Droplets,
   Package,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useTheme } from "@/hooks/use-theme";
 import { FormField } from "@/components/common/FormField";
 import { TimePicker } from "@/components/modals/TimePicker";
@@ -26,7 +27,7 @@ export function AddView({
   dark,
 }: {
   onBack: () => void;
-  onSave: (m: NewMedication) => void;
+  onSave: (m: NewMedication) => Promise<void>;
   dark: boolean;
 }) {
   const [name, setName] = useState("");
@@ -37,6 +38,7 @@ export function AddView({
   const [color, setColor] = useState(MED_COLORS[0]);
   const [days, setDays] = useState([0, 1, 2, 3, 4, 5, 6]);
   const [showPicker, setShowPicker] = useState(false);
+  const [saving, setSaving] = useState(false);
   const t = useTheme(dark);
   const doseUnit = type === "packet" ? "포" : "정";
   const remainingUnit = getQuantityUnit(type); // 잔여량 단위는 공통 유틸 사용
@@ -49,24 +51,32 @@ export function AddView({
     return `${d.toString().padStart(2, "0")}:${mm} ${a}`;
   };
 
-  const save = () => {
-    if (!name.trim()) return;
+  // onSave(DB insert) 완료 후 화면 전환 — 중간에 실패하면 에러 토스트
+  const save = useCallback(async () => {
+    if (!name.trim() || saving) return;
     const h = parseInt(time.split(":")[0]);
     let cat: Category = "morning";
     if (h >= 11 && h < 16) cat = "lunch";
     if (h >= 16) cat = "evening";
-    onSave({
-      name: name.trim(),
-      dosage: `${dosage}${doseUnit}`,
-      dosageAmount: parseInt(dosage) || 1,
-      remainingQuantity: parseInt(remaining) || 0,
-      time: formatDisplay(time),
-      category: cat,
-      type,
-      color,
-    });
-    onBack();
-  };
+    setSaving(true);
+    try {
+      await onSave({
+        name: name.trim(),
+        dosage: `${dosage}${doseUnit}`,
+        dosageAmount: parseInt(dosage) || 1,
+        remainingQuantity: parseInt(remaining) || 0,
+        time: formatDisplay(time),
+        category: cat,
+        type,
+        color,
+      });
+      onBack();
+    } catch {
+      toast.error("약 추가에 실패했습니다. 다시 시도해주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }, [name, saving, time, dosage, doseUnit, remaining, type, color, onSave, onBack]);
 
   return (
     <div
@@ -283,18 +293,18 @@ export function AddView({
           </div>
         </FormField>
 
-        {/* 저장 버튼 */}
+        {/* 저장 버튼 — DB insert 완료 전까지 비활성화 */}
         <button
           onClick={save}
-          disabled={!name.trim()}
+          disabled={!name.trim() || saving}
           className="w-full py-5 rounded-2xl font-extrabold text-lg text-white shadow-lg transition-all active:scale-[0.98] min-h-[48px]"
           style={{
-            background: name.trim()
+            background: name.trim() && !saving
               ? "linear-gradient(135deg,#6C63FF,#4FACFE)"
               : t.divider,
           }}
         >
-          저장하기
+          {saving ? "저장 중..." : "저장하기"}
         </button>
       </div>
 

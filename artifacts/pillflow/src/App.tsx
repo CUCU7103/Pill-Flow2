@@ -70,7 +70,7 @@ export default function App() {
   }, [meds, deleteMed]);
 
   const handleAdd = useCallback(async (m: Omit<Medication, "id" | "completed">) => {
-    await addMed(m);
+    await addMed(m); // 실패 시 throw → AddView에서 에러 토스트 처리
     toast.success(`${m.name} 추가됨`);
   }, [addMed]);
 

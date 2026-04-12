@@ -88,6 +88,9 @@ export function useMedications(userId?: string) {
       type: MedType;
       color: string;
     }) => {
+      // 로그인 전에는 추가 불가
+      if (!userId) throw new Error("로그인이 필요합니다.");
+
       const { data: row, error: err } = await supabase
         .from("medications")
         .insert({
