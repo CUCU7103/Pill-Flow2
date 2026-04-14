@@ -46,13 +46,6 @@ export default function App() {
   // user.id를 전달해 RLS insert 시 user_id가 포함되도록 함
   const { meds, loading: medsLoading, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user?.id);
 
-  // 오늘 요일 키 계산 (일=0, 월=1 ... 토=6 → DB 키로 변환)
-  const DAY_KEYS = ["sun","mon","tue","wed","thu","fri","sat"] as const;
-  const todayKey = DAY_KEYS[new Date().getDay()];
-
-  // 오늘 복용해야 할 약만 필터링
-  const todayMeds = meds.filter((m) => m.days.includes(todayKey));
-
   // 복약 알림 스케줄링 (네이티브 앱에서만 동작)
   useNotifications(meds, notif);
 
@@ -145,6 +138,13 @@ export default function App() {
 
   // 약 데이터 로딩 중
   if (medsLoading) return <LoadingSpinner />;
+
+  // 오늘 요일 키 계산 (일=0, 월=1 ... 토=6 → DB 키로 변환)
+  const DAY_KEYS = ["sun","mon","tue","wed","thu","fri","sat"] as const;
+  const todayKey = DAY_KEYS[new Date().getDay()];
+
+  // 오늘 복용해야 할 약만 필터링 (로그인 + 로딩 완료 후에만 실행)
+  const todayMeds = meds.filter((m) => m.days.includes(todayKey));
 
   return (
     <div
