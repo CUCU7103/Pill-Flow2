@@ -26,4 +26,6 @@ export interface Medication {
   completed: boolean;
   type: MedType;
   color: string;
+  /** 복용 요일 배열. 예: ["mon","wed","fri"] */
+  days: string[];
 }
