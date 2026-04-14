@@ -21,6 +21,14 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+        debug {
+            // APK 파일명: pillflow-v{versionName}-debug.apk
+        }
+    }
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            outputFileName = "pillflow-v${defaultConfig.versionName}-${variant.buildType.name}.apk"
+        }
     }
 }
 
