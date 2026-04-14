@@ -8,6 +8,7 @@ import { useDarkMode } from "@/hooks/use-theme";
 import { useMedications } from "@/hooks/use-medications";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotifications } from "@/hooks/use-notifications";
+import { useDayChange } from "@/hooks/use-day-change";
 import { BottomNav } from "@/components/common/BottomNav";
 import { TodayView } from "@/components/views/TodayView";
 import { AddView } from "@/components/views/AddView";
@@ -43,10 +44,20 @@ export default function App() {
 
   // Supabase 기반 약 데이터 (로그인 후에만 사용)
   // user.id를 전달해 RLS insert 시 user_id가 포함되도록 함
-  const { meds, loading: medsLoading, addMed, deleteMed, toggleMed, resetAll } = useMedications(user?.id);
+  const { meds, loading: medsLoading, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user?.id);
+
+  // 오늘 요일 키 계산 (일=0, 월=1 ... 토=6 → DB 키로 변환)
+  const DAY_KEYS = ["sun","mon","tue","wed","thu","fri","sat"] as const;
+  const todayKey = DAY_KEYS[new Date().getDay()];
+
+  // 오늘 복용해야 할 약만 필터링
+  const todayMeds = meds.filter((m) => m.days.includes(todayKey));
 
   // 복약 알림 스케줄링 (네이티브 앱에서만 동작)
   useNotifications(meds, notif);
+
+  // 자정이 지나면 복약 데이터 재조회 (completed 상태 리셋)
+  useDayChange(refetchMeds);
 
   const handleToggle = useCallback(async (id: string) => {
     const med = meds.find((m) => m.id === id);
@@ -153,7 +164,7 @@ export default function App() {
               transition={{ duration: 0.2 }}
             >
               <TodayView
-                meds={meds}
+                meds={todayMeds}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
                 onAddClick={() => setView("add")}
