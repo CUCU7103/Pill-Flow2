@@ -14,6 +14,8 @@ function toMedication(row: Record<string, unknown>, completedIds: Set<string>): 
     category: row.category as Category,
     type: row.type as MedType,
     color: row.color as string,
+    // DB 컬럼이 없는 구버전 데이터 대비 — 없으면 전체 요일로 fallback
+    days: (row.days as string[] | null) ?? ["mon","tue","wed","thu","fri","sat","sun"],
     completed: completedIds.has(row.id as string),
   };
 }
@@ -87,6 +89,7 @@ export function useMedications(userId?: string) {
       category: Category;
       type: MedType;
       color: string;
+      days: string[];
     }) => {
       // 로그인 전에는 추가 불가
       if (!userId) throw new Error("로그인이 필요합니다.");
@@ -103,6 +106,7 @@ export function useMedications(userId?: string) {
           category: data.category,
           type: data.type,
           color: data.color,
+          days: data.days,
         })
         .select()
         .single();
