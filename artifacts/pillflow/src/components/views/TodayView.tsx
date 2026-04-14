@@ -253,7 +253,7 @@ export function TodayView({
       </div>
 
       {/* FAB */}
-      <div className="fixed bottom-24 right-6 z-40">
+      <div className="fixed bottom-32 right-6 z-40">
         <button
           onClick={onAddClick}
           aria-label="새 약 추가"
