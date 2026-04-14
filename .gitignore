@@ -79,3 +79,10 @@ artifacts/pillflow/android/.idea/migrations.xml
 attached_assets/
 
 .vercel
+
+# 이미지 파일 (테스트 스크린샷 등)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
