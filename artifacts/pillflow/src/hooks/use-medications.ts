@@ -21,16 +21,20 @@ function toMedication(row: Record<string, unknown>, completedIds: Set<string>): 
 }
 
 /**
- * 로컬 시간 기준 오늘 날짜 문자열 (YYYY-MM-DD).
+ * 로컬 시간 기준 날짜 문자열 (YYYY-MM-DD).
  * toISOString()은 UTC 기준이므로 KST(UTC+9) 자정 전후 시간대에
  * 날짜가 어긋나는 문제를 방지하기 위해 로컬 날짜를 직접 계산한다.
  */
-function getToday() {
-  const d = new Date();
+function toLocalDateStr(d: Date): string {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+/** 오늘 날짜 문자열 (로컬 시간 기준, YYYY-MM-DD) */
+function getToday() {
+  return toLocalDateStr(new Date());
 }
 
 /**
@@ -230,12 +234,12 @@ export function useStats(totalMeds: number, userId?: string) {
         const stats: { day: string; rate: number }[] = [];
         const total = totalMeds || 1;
 
-        // 최근 7일 날짜 목록 생성
+        // 최근 7일 날짜 목록 생성 (로컬 시간 기준 — KST 자정 시간대 불일치 방지)
         const dates: string[] = [];
         for (let i = 6; i >= 0; i--) {
           const d = new Date();
           d.setDate(d.getDate() - i);
-          dates.push(d.toISOString().split("T")[0]);
+          dates.push(toLocalDateStr(d));
         }
 
         // 현재 유저의 약 id 목록 조회
@@ -259,7 +263,7 @@ export function useStats(totalMeds: number, userId?: string) {
         for (let i = 6; i >= 0; i--) {
           const d = new Date();
           d.setDate(d.getDate() - i);
-          const dateStr = d.toISOString().split("T")[0];
+          const dateStr = toLocalDateStr(d);
           const dayLogs = (logs ?? []).filter((l: { date: string }) => l.date === dateStr);
           const uniqueMeds = new Set(dayLogs.map((l: { medication_id: string }) => l.medication_id));
           const rate = Math.round((uniqueMeds.size / total) * 100);
@@ -268,12 +272,12 @@ export function useStats(totalMeds: number, userId?: string) {
 
         setWeeklyData(stats);
 
-        // 연속 일수 계산
+        // 연속 일수 계산 (로컬 시간 기준)
         let s = 0;
         for (let i = 1; i <= 365; i++) {
           const d = new Date();
           d.setDate(d.getDate() - i);
-          const dateStr = d.toISOString().split("T")[0];
+          const dateStr = toLocalDateStr(d);
           const dayLogs = (logs ?? []).filter((l: { date: string }) => l.date === dateStr);
           const uniqueMeds = new Set(dayLogs.map((l: { medication_id: string }) => l.medication_id));
           if (uniqueMeds.size >= total) {

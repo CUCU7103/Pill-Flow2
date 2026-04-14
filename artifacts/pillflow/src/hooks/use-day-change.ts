@@ -6,6 +6,10 @@ import { useEffect } from "react";
  */
 export function useDayChange(callback: () => void) {
   useEffect(() => {
+    // 현재 활성 타이머 ID를 객체로 관리 — 재귀 호출 후에도 cleanup이 최신 타이머를 해제하도록 함.
+    // 단순 변수로는 첫 번째 타이머만 cleanup되고 두 번째부터 누수가 발생한다.
+    const timerRef = { current: 0 as ReturnType<typeof setTimeout> };
+
     function scheduleMidnight() {
       const now = new Date();
       const tomorrow = new Date(
@@ -19,19 +23,17 @@ export function useDayChange(callback: () => void) {
       );
       const msUntilMidnight = tomorrow.getTime() - now.getTime();
 
-      const timer = setTimeout(() => {
+      // timerRef에 덮어쓰므로 cleanup 시 항상 최신 타이머 ID가 해제됨
+      timerRef.current = setTimeout(() => {
         callback();
         // 자정 이후 다음 자정도 감지하기 위해 재귀 스케줄링
         scheduleMidnight();
       }, msUntilMidnight);
-
-      return timer;
     }
 
-    const timer = scheduleMidnight();
-    return () => clearTimeout(timer);
-    // callback이 바뀌어도 타이머를 재설정하지 않도록 의존성 배열 비움
-    // (App.tsx에서 useCallback으로 감싼 refetch를 전달하므로 안전)
+    scheduleMidnight();
+    // userId 변경 시 컴포넌트가 재마운트되므로 stale callback 참조 위험 없음
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => clearTimeout(timerRef.current);
   }, []);
 }
