@@ -56,6 +56,14 @@ export const INITIAL_MEDS: Medication[] = [
   },
 ];
 
+// ─── 요일 키 상수 ────────────────────────────────────────────────────────────
+
+/** UI 요일 버튼 순서 기준 (월=0) — AddView에서 숫자 인덱스를 DB 키로 변환할 때 사용 */
+export const DAY_KEYS_MON_FIRST = ["mon","tue","wed","thu","fri","sat","sun"] as const;
+
+/** Date.getDay() 반환값 기준 (일=0) — 오늘 요일 필터링할 때 사용 */
+export const DAY_KEYS_SUN_FIRST = ["sun","mon","tue","wed","thu","fri","sat"] as const;
+
 // ─── 주간 통계 데이터 (TODO: 백엔드 연동 후 실제 데이터로 교체) ─────────────
 export const WEEKLY_DATA = [
   { day: "월", rate: 80 },

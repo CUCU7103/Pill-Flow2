@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useTheme } from "@/hooks/use-theme";
 import { FormField } from "@/components/common/FormField";
 import { TimePicker } from "@/components/modals/TimePicker";
-import { MED_COLORS } from "@/constants";
+import { MED_COLORS, DAY_KEYS_MON_FIRST } from "@/constants";
 import type { Medication, MedType, Category } from "@/types";
 import { getQuantityUnit } from "@/types";
 
@@ -64,9 +64,8 @@ export function AddView({
     if (h >= 16) cat = "evening";
     setSaving(true);
     try {
-      // 숫자 인덱스(월=0 기준)를 DB 문자열 키로 변환
-      const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
-      const selectedDays = DAY_KEYS.filter((_, i) => days.includes(i));
+      // 숫자 인덱스(월=0 기준)를 DB 문자열 키로 변환 (DAY_KEYS_MON_FIRST는 constants에서 import)
+      const selectedDays = DAY_KEYS_MON_FIRST.filter((_, i) => days.includes(i));
 
       await onSave({
         name: name.trim(),

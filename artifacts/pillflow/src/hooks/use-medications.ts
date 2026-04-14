@@ -20,9 +20,17 @@ function toMedication(row: Record<string, unknown>, completedIds: Set<string>): 
   };
 }
 
-/** 오늘 날짜 문자열 (YYYY-MM-DD) */
+/**
+ * 로컬 시간 기준 오늘 날짜 문자열 (YYYY-MM-DD).
+ * toISOString()은 UTC 기준이므로 KST(UTC+9) 자정 전후 시간대에
+ * 날짜가 어긋나는 문제를 방지하기 위해 로컬 날짜를 직접 계산한다.
+ */
 function getToday() {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 /**
