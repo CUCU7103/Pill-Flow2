@@ -26,6 +26,7 @@ export const INITIAL_MEDS: Medication[] = [
     completed: false,
     type: "capsule",
     color: "#6C63FF",
+    days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
   },
   {
     id: "2",
@@ -38,6 +39,7 @@ export const INITIAL_MEDS: Medication[] = [
     completed: false,
     type: "pill",
     color: "#FF6584",
+    days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
   },
   {
     id: "3",
@@ -50,6 +52,7 @@ export const INITIAL_MEDS: Medication[] = [
     completed: false,
     type: "liquid",
     color: "#FFD166",
+    days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
   },
 ];
 
