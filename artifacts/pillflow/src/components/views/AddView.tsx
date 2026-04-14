@@ -54,12 +54,20 @@ export function AddView({
   // onSave(DB insert) 완료 후 화면 전환 — 중간에 실패하면 에러 토스트
   const save = useCallback(async () => {
     if (!name.trim() || saving) return;
+    if (days.length === 0) {
+      toast.error("복용 요일을 최소 1개 선택해주세요.");
+      return;
+    }
     const h = parseInt(time.split(":")[0]);
     let cat: Category = "morning";
     if (h >= 11 && h < 16) cat = "lunch";
     if (h >= 16) cat = "evening";
     setSaving(true);
     try {
+      // 숫자 인덱스(월=0 기준)를 DB 문자열 키로 변환
+      const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+      const selectedDays = DAY_KEYS.filter((_, i) => days.includes(i));
+
       await onSave({
         name: name.trim(),
         dosage: `${dosage}${doseUnit}`,
@@ -69,6 +77,7 @@ export function AddView({
         category: cat,
         type,
         color,
+        days: selectedDays,
       });
       onBack();
     } catch {
@@ -76,7 +85,7 @@ export function AddView({
     } finally {
       setSaving(false);
     }
-  }, [name, saving, time, dosage, doseUnit, remaining, type, color, onSave, onBack]);
+  }, [name, saving, time, dosage, doseUnit, remaining, type, color, days, onSave, onBack]);
 
   return (
     <div
@@ -296,10 +305,10 @@ export function AddView({
         {/* 저장 버튼 — DB insert 완료 전까지 비활성화 */}
         <button
           onClick={save}
-          disabled={!name.trim() || saving}
+          disabled={!name.trim() || saving || days.length === 0}
           className="w-full py-5 rounded-2xl font-extrabold text-lg text-white shadow-lg transition-all active:scale-[0.98] min-h-[48px]"
           style={{
-            background: name.trim() && !saving
+            background: name.trim() && !saving && days.length > 0
               ? "linear-gradient(135deg,#6C63FF,#4FACFE)"
               : t.divider,
           }}
