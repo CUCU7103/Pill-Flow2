@@ -86,12 +86,11 @@ export function NotificationPopover({
                   </p>
                 </div>
                 {/* 전체 알림 OFF이면 카테고리 토글 비활성화 */}
-                <div style={{ opacity: notifEnabled ? 1 : 0.4, pointerEvents: notifEnabled ? "auto" : "none" }}>
-                  <Toggle
-                    on={categories[key]}
-                    onToggle={() => onToggleCategory(key)}
-                  />
-                </div>
+                <Toggle
+                  on={categories[key]}
+                  onToggle={() => onToggleCategory(key)}
+                  disabled={!notifEnabled}
+                />
               </div>
             ))}
           </div>
