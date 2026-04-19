@@ -16,7 +16,7 @@ import { StatsView } from "@/components/views/StatsView";
 import { LoginView } from "@/components/views/LoginView";
 import { SettingsModal } from "@/components/modals/SettingsModal";
 import { DAY_KEYS_SUN_FIRST } from "@/constants";
-import type { View, Medication } from "@/types";
+import type { View, Medication, NotifCategories } from "@/types";
 
 /** 공통 로딩 스피너 */
 function LoadingSpinner() {
@@ -34,6 +34,10 @@ export default function App() {
   const [view, setView] = useState<View>("today");
   const [dark, setDark] = usePersisted<boolean>("pillflow_dark", false);
   const [notif, setNotif] = usePersisted<boolean>("pillflow_notif", true);
+  const [notifCategories, setNotifCategories] = usePersisted<NotifCategories>(
+    "pillflow_notif_categories",
+    { morning: true, lunch: true, evening: true }
+  );
   const [alarm, setAlarm] = usePersisted<string>("pillflow_alarm", "08:00");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -48,7 +52,7 @@ export default function App() {
   const { meds, loading: medsLoading, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user?.id);
 
   // 복약 알림 스케줄링 (네이티브 앱에서만 동작)
-  useNotifications(meds, notif);
+  useNotifications(meds, notif, notifCategories);
 
   // 자정이 지나면 복약 데이터 재조회 (completed 상태 리셋)
   useDayChange(refetchMeds);
@@ -82,6 +86,10 @@ export default function App() {
     await addMed(m); // 실패 시 throw → AddView에서 에러 토스트 처리
     toast.success(`${m.name} 추가됨`);
   }, [addMed]);
+
+  const handleToggleCategory = useCallback((key: keyof NotifCategories) => {
+    setNotifCategories((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   // 두 번 누르면 종료 패턴을 위한 ref
   const backPressedRef = useRef(false);
@@ -170,6 +178,10 @@ export default function App() {
                 onAddClick={() => setView("add")}
                 dark={dark}
                 onOpenSettings={() => setSettingsOpen(true)}
+                notifEnabled={notif}
+                onToggleNotif={() => setNotif(!notif)}
+                categories={notifCategories}
+                onToggleCategory={handleToggleCategory}
               />
             </motion.div>
           )}
