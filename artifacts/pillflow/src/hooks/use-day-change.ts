@@ -8,7 +8,7 @@ export function useDayChange(callback: () => void) {
   useEffect(() => {
     // 현재 활성 타이머 ID를 객체로 관리 — 재귀 호출 후에도 cleanup이 최신 타이머를 해제하도록 함.
     // 단순 변수로는 첫 번째 타이머만 cleanup되고 두 번째부터 누수가 발생한다.
-    const timerRef = { current: 0 as ReturnType<typeof setTimeout> };
+    const timerRef = { current: undefined as ReturnType<typeof setTimeout> | undefined };
 
     function scheduleMidnight() {
       const now = new Date();
