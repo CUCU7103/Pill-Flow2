@@ -29,3 +29,10 @@ export interface Medication {
   /** 복용 요일 배열. 예: ["mon","wed","fri"] */
   days: string[];
 }
+
+/** 시간대별 알림 활성화 상태 */
+export type NotifCategories = {
+  morning: boolean;
+  lunch: boolean;
+  evening: boolean;
+};
