@@ -142,38 +142,70 @@ export function useMedications(userId?: string) {
   const toggleMed = useCallback(async (id: string) => {
     const today = getToday();
 
-    // 낙관적 UI 업데이트
-    setMeds((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m)),
-    );
+    // setMeds 콜백 안에서 최신 med를 읽어 stale closure 방지
+    // 낙관적으로 completed + remainingQuantity를 동시에 업데이트
+    let snapshot: { wasCompleted: boolean; previousRemaining: number; dosageAmount: number } | null = null;
+    setMeds((prev) => {
+      const med = prev.find((m) => m.id === id);
+      if (!med) return prev;
+      snapshot = {
+        wasCompleted: med.completed,
+        previousRemaining: med.remainingQuantity,
+        dosageAmount: med.dosageAmount,
+      };
+      const newRemaining = med.completed
+        ? med.remainingQuantity + med.dosageAmount          // 체크 취소 → 복원
+        : Math.max(0, med.remainingQuantity - med.dosageAmount); // 체크 ON → 차감
+      return prev.map((m) =>
+        m.id === id ? { ...m, completed: !m.completed, remainingQuantity: newRemaining } : m,
+      );
+    });
 
-    const med = meds.find((m) => m.id === id);
-    if (!med) return;
+    if (!snapshot) return;
+    const { wasCompleted, previousRemaining, dosageAmount } = snapshot as {
+      wasCompleted: boolean;
+      previousRemaining: number;
+      dosageAmount: number;
+    };
+    const newRemaining = wasCompleted
+      ? previousRemaining + dosageAmount
+      : Math.max(0, previousRemaining - dosageAmount);
 
     try {
-      if (!med.completed) {
+      if (!wasCompleted) {
         // 복용 기록 추가
-        const { error: err } = await supabase
+        const { error: logErr } = await supabase
           .from("medication_logs")
           .insert({ medication_id: id, date: today });
-        if (err) throw err;
+        if (logErr) throw logErr;
       } else {
         // 복용 기록 삭제 (오늘 것만)
-        const { error: err } = await supabase
+        const { error: logErr } = await supabase
           .from("medication_logs")
           .delete()
           .eq("medication_id", id)
           .eq("date", today);
-        if (err) throw err;
+        if (logErr) throw logErr;
       }
+
+      // 잔여 수량 업데이트
+      const { error: qtyErr } = await supabase
+        .from("medications")
+        .update({ remaining_quantity: newRemaining })
+        .eq("id", id);
+      if (qtyErr) throw qtyErr;
     } catch (err) {
-      // DB 실패 시 낙관적 업데이트 롤백
+      // DB 실패 시 낙관적 업데이트 롤백 (completed + remainingQuantity 모두 원복)
       setMeds((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m)),
+        prev.map((m) =>
+          m.id === id
+            ? { ...m, completed: wasCompleted, remainingQuantity: previousRemaining }
+            : m,
+        ),
       );
       throw err;
     }
-  }, [meds]);
+  }, []);
 
   /**
    * 현재 유저의 모든 복용 기록과 약 데이터를 삭제
