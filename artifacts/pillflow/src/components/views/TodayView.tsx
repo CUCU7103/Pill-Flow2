@@ -1,13 +1,14 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Bell, Settings, Plus, Sparkles, CheckCircle2, Trash2, Flame,
+  Settings, Plus, Sparkles, CheckCircle2, Trash2, Flame,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { MedIcon } from "@/components/common/MedIcon";
 import { DeleteModal } from "@/components/modals/DeleteModal";
-import type { Medication } from "@/types";
+import type { Medication, NotifCategories } from "@/types";
 import { getQuantityUnit } from "@/types";
+import { NotificationPopover } from "@/components/NotificationPopover";
 
 /** 오늘의 복용 현황 화면 */
 export function TodayView({
@@ -17,6 +18,10 @@ export function TodayView({
   onAddClick,
   dark,
   onOpenSettings,
+  notifEnabled,
+  onToggleNotif,
+  categories,
+  onToggleCategory,
 }: {
   meds: Medication[];
   onToggle: (id: string) => void;
@@ -24,6 +29,10 @@ export function TodayView({
   onAddClick: () => void;
   dark: boolean;
   onOpenSettings: () => void;
+  notifEnabled: boolean;
+  onToggleNotif: () => void;
+  categories: NotifCategories;
+  onToggleCategory: (key: keyof NotifCategories) => void;
 }) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const t = useTheme(dark);
@@ -77,13 +86,13 @@ export function TodayView({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              aria-label="알림"
-              className="w-10 h-10 rounded-full shadow-sm flex items-center justify-center min-w-[44px] min-h-[44px]"
-              style={{ backgroundColor: t.card }}
-            >
-              <Bell size={17} style={{ color: "#6C63FF" }} />
-            </button>
+            <NotificationPopover
+              dark={dark}
+              notifEnabled={notifEnabled}
+              onToggleNotif={onToggleNotif}
+              categories={categories}
+              onToggleCategory={onToggleCategory}
+            />
             <button
               onClick={onOpenSettings}
               aria-label="설정 열기"
