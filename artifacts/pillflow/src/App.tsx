@@ -87,9 +87,13 @@ export default function App() {
     toast.success(`${m.name} 추가됨`);
   }, [addMed]);
 
+  const handleToggleNotif = useCallback(() => {
+    setNotif((prev) => !prev);
+  }, []);
+
   const handleToggleCategory = useCallback((key: keyof NotifCategories) => {
     setNotifCategories((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
+  }, [setNotifCategories]);
 
   // 두 번 누르면 종료 패턴을 위한 ref
   const backPressedRef = useRef(false);
@@ -179,7 +183,7 @@ export default function App() {
                 dark={dark}
                 onOpenSettings={() => setSettingsOpen(true)}
                 notifEnabled={notif}
-                onToggleNotif={() => setNotif(!notif)}
+                onToggleNotif={handleToggleNotif}
                 categories={notifCategories}
                 onToggleCategory={handleToggleCategory}
               />
@@ -223,7 +227,7 @@ export default function App() {
             dark={dark}
             onToggleDark={() => setDark(!dark)}
             notif={notif}
-            onToggleNotif={() => setNotif(!notif)}
+            onToggleNotif={handleToggleNotif}
             alarm={alarm}
             onAlarmChange={setAlarm}
             user={user}
