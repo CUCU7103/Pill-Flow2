@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications, type ScheduleOptions } from "@capacitor/local-notifications";
-import type { Medication } from "@/types";
+import type { Medication, NotifCategories } from "@/types";
 
 /**
  * 복약 알림을 스케줄링하는 훅
@@ -9,17 +9,22 @@ import type { Medication } from "@/types";
  * - notif가 false이면 모든 알림을 취소
  * - meds 또는 notif가 변경될 때마다 알림을 재스케줄링
  */
-export function useNotifications(meds: Medication[], notif: boolean) {
+export function useNotifications(
+  meds: Medication[],
+  notif: boolean,
+  categories: NotifCategories
+) {
   useEffect(() => {
     // 웹 환경에서는 Local Notifications API 사용 불가
     if (!Capacitor.isNativePlatform()) return;
 
     if (notif) {
-      scheduleNotifications(meds);
+      scheduleNotifications(meds, categories);
     } else {
       cancelAllNotifications();
     }
-  }, [meds, notif]);
+    // 객체 참조 대신 원시값으로 풀어서 불필요한 재실행 방지
+  }, [meds, notif, categories.morning, categories.lunch, categories.evening]);
 }
 
 /** 알림 채널 생성 (Android 8.0+ 필수 - 채널 단위로 소리/진동 설정) */
@@ -40,7 +45,7 @@ async function ensureNotificationChannel() {
 }
 
 /** 모든 기존 알림을 취소하고 현재 약 목록으로 재스케줄링 */
-async function scheduleNotifications(meds: Medication[]) {
+async function scheduleNotifications(meds: Medication[], categories: NotifCategories) {
   try {
     // 알림 권한 요청 (Android 13+ / iOS는 반드시 필요)
     const { display } = await LocalNotifications.requestPermissions();
@@ -52,8 +57,10 @@ async function scheduleNotifications(meds: Medication[]) {
     // 기존 알림을 모두 취소하고 새로 스케줄링 (중복 방지)
     await cancelAllNotifications();
 
-    // 완료되지 않은 약에 대해서만 알림 스케줄링
-    const pendingMeds = meds.filter((m) => !m.completed);
+    // 완료되지 않은 약 중 활성화된 카테고리에 해당하는 것만 스케줄링
+    const pendingMeds = meds.filter(
+      (m) => !m.completed && categories[m.category] === true
+    );
     if (pendingMeds.length === 0) return;
 
     const notifications: ScheduleOptions["notifications"] = pendingMeds.map((med, index) => {
