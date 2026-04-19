@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Medication, Category, MedType } from "@/types";
 
@@ -138,72 +138,76 @@ export function useMedications(userId?: string) {
     setMeds((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
+  // 현재 처리 중인 약 ID 집합 — 더블 클릭 시 중복 요청 방지
+  const pendingIds = useRef<Set<string>>(new Set());
+
   // 복용 토글
   const toggleMed = useCallback(async (id: string) => {
+    // 이미 처리 중인 약이면 무시 (더블 클릭 방지)
+    if (pendingIds.current.has(id)) return;
+    pendingIds.current.add(id);
+
     const today = getToday();
 
     // setMeds 콜백 안에서 최신 med를 읽어 stale closure 방지
     // 낙관적으로 completed + remainingQuantity를 동시에 업데이트
-    let snapshot: { wasCompleted: boolean; previousRemaining: number; dosageAmount: number } | null = null;
+    let snapshot: {
+      wasCompleted: boolean;
+      previousRemaining: number;
+      dosageAmount: number;
+      newRemaining: number;
+    } | null = null;
+
     setMeds((prev) => {
       const med = prev.find((m) => m.id === id);
       if (!med) return prev;
+      const newRemaining = med.completed
+        ? med.remainingQuantity + med.dosageAmount          // 체크 취소 → 복원
+        : Math.max(0, med.remainingQuantity - med.dosageAmount); // 체크 ON → 차감
       snapshot = {
         wasCompleted: med.completed,
         previousRemaining: med.remainingQuantity,
         dosageAmount: med.dosageAmount,
+        newRemaining,
       };
-      const newRemaining = med.completed
-        ? med.remainingQuantity + med.dosageAmount          // 체크 취소 → 복원
-        : Math.max(0, med.remainingQuantity - med.dosageAmount); // 체크 ON → 차감
       return prev.map((m) =>
         m.id === id ? { ...m, completed: !m.completed, remainingQuantity: newRemaining } : m,
       );
     });
 
-    if (!snapshot) return;
-    const { wasCompleted, previousRemaining, dosageAmount } = snapshot as {
+    // snapshot이 없으면 해당 id의 약이 없는 것 — 조기 종료
+    // TypeScript가 setMeds 콜백 내 할당을 narrowing하지 못해 명시적 타입 단언 사용
+    const s = snapshot as {
       wasCompleted: boolean;
       previousRemaining: number;
       dosageAmount: number;
-    };
-    const newRemaining = wasCompleted
-      ? previousRemaining + dosageAmount
-      : Math.max(0, previousRemaining - dosageAmount);
+      newRemaining: number;
+    } | null;
+    if (!s) {
+      pendingIds.current.delete(id);
+      return;
+    }
 
     try {
-      if (!wasCompleted) {
-        // 복용 기록 추가
-        const { error: logErr } = await supabase
-          .from("medication_logs")
-          .insert({ medication_id: id, date: today });
-        if (logErr) throw logErr;
-      } else {
-        // 복용 기록 삭제 (오늘 것만)
-        const { error: logErr } = await supabase
-          .from("medication_logs")
-          .delete()
-          .eq("medication_id", id)
-          .eq("date", today);
-        if (logErr) throw logErr;
-      }
-
-      // 잔여 수량 업데이트
-      const { error: qtyErr } = await supabase
-        .from("medications")
-        .update({ remaining_quantity: newRemaining })
-        .eq("id", id);
-      if (qtyErr) throw qtyErr;
+      // 단일 RPC로 medication_logs 조작 + remaining_quantity 업데이트를 원자적 처리
+      const { error: rpcErr } = await supabase.rpc("toggle_medication_today", {
+        p_medication_id: id,
+        p_date: today,
+        p_dosage_amount: s.dosageAmount,
+      });
+      if (rpcErr) throw rpcErr;
     } catch (err) {
-      // DB 실패 시 낙관적 업데이트 롤백 (completed + remainingQuantity 모두 원복)
+      // RPC 실패 시 낙관적 업데이트 롤백 (completed + remainingQuantity 모두 원복)
       setMeds((prev) =>
         prev.map((m) =>
           m.id === id
-            ? { ...m, completed: wasCompleted, remainingQuantity: previousRemaining }
+            ? { ...m, completed: s.wasCompleted, remainingQuantity: s.previousRemaining }
             : m,
         ),
       );
       throw err;
+    } finally {
+      pendingIds.current.delete(id);
     }
   }, []);
 
