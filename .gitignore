@@ -86,3 +86,6 @@ attached_assets/
 *.jpeg
 *.gif
 *.webp
+
+# bkit 플러그인 로컬 데이터
+.bkit/
