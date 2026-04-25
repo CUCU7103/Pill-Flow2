@@ -8,8 +8,7 @@ function toMedication(row: Record<string, unknown>, completedIds: Set<string>): 
     id: row.id as string,
     name: row.name as string,
     dosage: row.dosage as string,
-    dosageAmount: row.dosage_amount as number,
-    remainingQuantity: row.remaining_quantity as number,
+    memo: (row.memo as string | null) ?? "",
     time: row.time as string,
     category: row.category as Category,
     type: row.type as MedType,
@@ -95,8 +94,7 @@ export function useMedications(userId?: string) {
     async (data: {
       name: string;
       dosage: string;
-      dosageAmount: number;
-      remainingQuantity: number;
+      memo: string;
       time: string;
       category: Category;
       type: MedType;
@@ -112,8 +110,7 @@ export function useMedications(userId?: string) {
           user_id: userId, // 현재 유저 소유로 저장
           name: data.name,
           dosage: data.dosage,
-          dosage_amount: data.dosageAmount,
-          remaining_quantity: data.remainingQuantity,
+          memo: data.memo,
           time: data.time,
           category: data.category,
           type: data.type,
@@ -148,61 +145,47 @@ export function useMedications(userId?: string) {
     pendingIds.current.add(id);
 
     const today = getToday();
+    let wasCompleted: boolean | null = null;
 
-    // setMeds 콜백 안에서 최신 med를 읽어 stale closure 방지
-    // 낙관적으로 completed + remainingQuantity를 동시에 업데이트
-    let snapshot: {
-      wasCompleted: boolean;
-      previousRemaining: number;
-      dosageAmount: number;
-      newRemaining: number;
-    } | null = null;
-
+    // 낙관적 업데이트 — completed 상태만 토글
     setMeds((prev) => {
       const med = prev.find((m) => m.id === id);
       if (!med) return prev;
-      const newRemaining = med.completed
-        ? med.remainingQuantity + med.dosageAmount          // 체크 취소 → 복원
-        : Math.max(0, med.remainingQuantity - med.dosageAmount); // 체크 ON → 차감
-      snapshot = {
-        wasCompleted: med.completed,
-        previousRemaining: med.remainingQuantity,
-        dosageAmount: med.dosageAmount,
-        newRemaining,
-      };
+      wasCompleted = med.completed;
       return prev.map((m) =>
-        m.id === id ? { ...m, completed: !m.completed, remainingQuantity: newRemaining } : m,
+        m.id === id ? { ...m, completed: !m.completed } : m,
       );
     });
 
-    // snapshot이 없으면 해당 id의 약이 없는 것 — 조기 종료
-    // TypeScript가 setMeds 콜백 내 할당을 narrowing하지 못해 명시적 타입 단언 사용
-    const s = snapshot as {
-      wasCompleted: boolean;
-      previousRemaining: number;
-      dosageAmount: number;
-      newRemaining: number;
-    } | null;
-    if (!s) {
+    if (wasCompleted === null) {
       pendingIds.current.delete(id);
       return;
     }
 
     try {
-      // 단일 RPC로 medication_logs 조작 + remaining_quantity 업데이트를 원자적 처리
-      const { error: rpcErr } = await supabase.rpc("toggle_medication_today", {
-        p_medication_id: id,
-        p_date: today,
-        p_dosage_amount: s.dosageAmount,
-      });
-      if (rpcErr) throw rpcErr;
+      if (wasCompleted) {
+        // 복용 취소 — 오늘 날짜 로그 삭제
+        const { error: delErr } = await supabase
+          .from("medication_logs")
+          .delete()
+          .eq("medication_id", id)
+          .eq("date", today);
+        if (delErr) throw delErr;
+      } else {
+        // 복용 완료 — 오늘 날짜 로그 삽입 (멀티 탭/기기 중복 방지를 위해 upsert 사용)
+        const { error: insErr } = await supabase
+          .from("medication_logs")
+          .upsert(
+            { medication_id: id, date: today },
+            { onConflict: "medication_id,date", ignoreDuplicates: true },
+          );
+        if (insErr) throw insErr;
+      }
     } catch (err) {
-      // RPC 실패 시 낙관적 업데이트 롤백 (completed + remainingQuantity 모두 원복)
+      // 실패 시 낙관적 업데이트 롤백
       setMeds((prev) =>
         prev.map((m) =>
-          m.id === id
-            ? { ...m, completed: s.wasCompleted, remainingQuantity: s.previousRemaining }
-            : m,
+          m.id === id ? { ...m, completed: wasCompleted as boolean } : m,
         ),
       );
       throw err;
