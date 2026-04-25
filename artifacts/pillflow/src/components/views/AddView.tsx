@@ -5,9 +5,11 @@ import {
   ChevronLeft,
   Clock,
   ChevronRight,
-  Circle,
   Droplets,
   Package,
+  Hand,
+  Eye,
+  Wind,
   Sunrise,
   SunMedium,
   MoonStar,
@@ -19,6 +21,7 @@ import { FormField } from "@/components/common/FormField";
 import { TimePicker } from "@/components/modals/TimePicker";
 import { MED_COLORS, DAY_KEYS_MON_FIRST } from "@/constants";
 import type { Medication, MedType, Category } from "@/types";
+import { getDoseUnit } from "@/types";
 
 /** 새 약 추가 시 전달할 데이터 (id, completed 제외) */
 type NewMedication = Omit<Medication, "id" | "completed">;
@@ -73,13 +76,13 @@ export function AddView({
   const [time, setTime] = useState("08:00");
   const [dosage, setDosage] = useState("1");
   const [memo, setMemo] = useState("");
-  const [type, setType] = useState<MedType>("pill");
+  const [type, setType] = useState<MedType>("tablet");
   const [color, setColor] = useState(MED_COLORS[0]);
   const [days, setDays] = useState([0, 1, 2, 3, 4, 5, 6]);
   const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const t = useTheme(dark);
-  const doseUnit = type === "packet" ? "포" : "정";
+  const doseUnit = getDoseUnit(type);
 
   const formatDisplay = (raw: string) => {
     const [hh, mm] = raw.split(":");
@@ -178,10 +181,12 @@ export function AddView({
             aria-label="약 유형 선택"
           >
             {[
-              { id: "pill" as const, label: "알약", Icon: Circle },
-              { id: "capsule" as const, label: "캡슐", Icon: Pill },
-              { id: "liquid" as const, label: "액상", Icon: Droplets },
-              { id: "packet" as const, label: "포장약", Icon: Package },
+              { id: "tablet"   as const, label: "알약",   Icon: Pill },
+              { id: "syrup"    as const, label: "시럽",   Icon: Droplets },
+              { id: "powder"   as const, label: "포장약", Icon: Package },
+              { id: "ointment" as const, label: "연고",   Icon: Hand },
+              { id: "drops"    as const, label: "점안액", Icon: Eye },
+              { id: "inhaler"  as const, label: "흡입제", Icon: Wind },
             ].map(({ id, label, Icon }) => (
               <button
                 key={id}

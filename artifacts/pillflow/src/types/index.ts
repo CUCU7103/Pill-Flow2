@@ -7,7 +7,20 @@ export type View = "today" | "add" | "stats";
 export type Category = "morning" | "lunch" | "evening";
 
 /** 약의 형태 */
-export type MedType = "pill" | "capsule" | "liquid" | "packet";
+export type MedType = "tablet" | "syrup" | "powder" | "ointment" | "drops" | "inhaler";
+
+/** 약 유형별 1회 용량 단위 */
+export function getDoseUnit(type: MedType): string {
+  const map: Record<MedType, string> = {
+    tablet: "정",
+    syrup: "ml",
+    powder: "포",
+    ointment: "회",
+    drops: "방울",
+    inhaler: "회",
+  };
+  return map[type];
+}
 
 /** 약 정보 인터페이스 */
 export interface Medication {

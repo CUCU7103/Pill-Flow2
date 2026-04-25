@@ -3,7 +3,7 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // ─── 약 유형 Enum ────────────────────────────────────────────────────────────
-export const medTypeEnum = pgEnum("med_type", ["pill", "capsule", "liquid", "packet"]);
+export const medTypeEnum = pgEnum("med_type", ["tablet", "syrup", "powder", "ointment", "drops", "inhaler"]);
 
 // ─── 복용 시간대 Enum ────────────────────────────────────────────────────────
 export const categoryEnum = pgEnum("category", ["morning", "lunch", "evening"]);
@@ -17,7 +17,7 @@ export const medicationsTable = pgTable("medications", {
   memo: text("memo").notNull().default(""),
   time: text("time").notNull(),
   category: categoryEnum("category").notNull().default("morning"),
-  type: medTypeEnum("type").notNull().default("pill"),
+  type: medTypeEnum("type").notNull().default("tablet"),
   color: text("color").notNull().default("#6C63FF"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
