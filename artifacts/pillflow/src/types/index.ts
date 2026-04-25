@@ -9,18 +9,13 @@ export type Category = "morning" | "lunch" | "evening";
 /** 약의 형태 */
 export type MedType = "pill" | "capsule" | "liquid" | "packet";
 
-/** 약 타입별 잔여량 단위를 반환 */
-export function getQuantityUnit(type: MedType): string {
-  return type === "packet" ? "포" : "개";
-}
-
 /** 약 정보 인터페이스 */
 export interface Medication {
   id: string;
   name: string;
   dosage: string;
-  dosageAmount: number;
-  remainingQuantity: number;
+  /** 복용 방법 메모 — 사용자가 직접 작성 */
+  memo: string;
   time: string;
   category: Category;
   completed: boolean;

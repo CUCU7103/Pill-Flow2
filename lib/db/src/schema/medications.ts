@@ -13,8 +13,8 @@ export const medicationsTable = pgTable("medications", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   dosage: text("dosage").notNull(),
-  dosageAmount: integer("dosage_amount").notNull().default(1),
-  remainingQuantity: integer("remaining_quantity").notNull().default(30),
+  /** 복용 방법 메모 — 사용자 직접 작성, 선택 입력 */
+  memo: text("memo").notNull().default(""),
   time: text("time").notNull(),
   category: categoryEnum("category").notNull().default("morning"),
   type: medTypeEnum("type").notNull().default("pill"),
