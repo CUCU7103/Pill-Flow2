@@ -1,11 +1,9 @@
-import { motion } from "framer-motion";
 import { BarChart3, Award } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from "recharts";
 import { useTheme } from "@/hooks/use-theme";
 import { useStats } from "@/hooks/use-medications";
 import { MedIcon } from "@/components/common/MedIcon";
 import type { Medication } from "@/types";
-import { getQuantityUnit } from "@/types";
 
 /** 통계 화면 */
 export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: boolean; userId?: string }) {
@@ -146,41 +144,33 @@ export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: bo
           ) : (
             <div className="space-y-4">
               {meds.map((med) => (
-                <div key={med.id}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <MedIcon type={med.type} color={med.color} />
-                      <div>
-                        <p className="text-sm font-bold" style={{ color: t.text }}>
-                          {med.name}
+                <div key={med.id} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MedIcon type={med.type} color={med.color} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold" style={{ color: t.text }}>
+                        {med.name}
+                      </p>
+                      {med.memo ? (
+                        <p
+                          className="text-[10px] truncate max-w-[160px]"
+                          style={{ color: t.subtext }}
+                        >
+                          {med.memo}
                         </p>
+                      ) : (
                         <p className="text-[10px]" style={{ color: t.subtext }}>
-                          잔여 {med.remainingQuantity}{getQuantityUnit(med.type)}
+                          {med.dosage}
                         </p>
-                      </div>
+                      )}
                     </div>
-                    <span
-                      className="text-sm font-black"
-                      style={{
-                        color: med.remainingQuantity < 10 ? "#FF6584" : "#06D6A0",
-                      }}
-                    >
-                      {med.completed ? "복용 완료" : "복용 전"}
-                    </span>
                   </div>
-                  <div className="h-2 rounded-full" style={{ backgroundColor: t.divider }}>
-                    <motion.div
-                      className="h-full rounded-full"
-                      animate={{
-                        width: `${Math.min((med.remainingQuantity / 60) * 100, 100)}%`,
-                      }}
-                      transition={{ duration: 0.7 }}
-                      style={{
-                        backgroundColor:
-                          med.remainingQuantity < 10 ? "#FF6584" : med.color,
-                      }}
-                    />
-                  </div>
+                  <span
+                    className="text-sm font-black flex-shrink-0"
+                    style={{ color: med.completed ? "#06D6A0" : t.subtext }}
+                  >
+                    {med.completed ? "복용 완료" : "복용 전"}
+                  </span>
                 </div>
               ))}
             </div>

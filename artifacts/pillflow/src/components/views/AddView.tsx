@@ -8,17 +8,56 @@ import {
   Circle,
   Droplets,
   Package,
+  Sunrise,
+  SunMedium,
+  MoonStar,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/use-theme";
 import { FormField } from "@/components/common/FormField";
 import { TimePicker } from "@/components/modals/TimePicker";
 import { MED_COLORS, DAY_KEYS_MON_FIRST } from "@/constants";
 import type { Medication, MedType, Category } from "@/types";
-import { getQuantityUnit } from "@/types";
 
 /** 새 약 추가 시 전달할 데이터 (id, completed 제외) */
 type NewMedication = Omit<Medication, "id" | "completed">;
+
+type TimeOption = {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  accent: string;
+  accentSoft: string;
+  glow: string;
+};
+
+const TIME_OPTIONS: TimeOption[] = [
+  {
+    icon: Sunrise,
+    label: "아침",
+    value: "08:00",
+    accent: "#F97316",
+    accentSoft: "#FFF1E8",
+    glow: "rgba(249, 115, 22, 0.22)",
+  },
+  {
+    icon: SunMedium,
+    label: "점심",
+    value: "13:00",
+    accent: "#EAB308",
+    accentSoft: "#FFF9DB",
+    glow: "rgba(234, 179, 8, 0.20)",
+  },
+  {
+    icon: MoonStar,
+    label: "저녁",
+    value: "19:00",
+    accent: "#6C63FF",
+    accentSoft: "#F0EEFF",
+    glow: "rgba(108, 99, 255, 0.22)",
+  },
+];
 
 /** 약 추가 화면 */
 export function AddView({
@@ -33,7 +72,7 @@ export function AddView({
   const [name, setName] = useState("");
   const [time, setTime] = useState("08:00");
   const [dosage, setDosage] = useState("1");
-  const [remaining, setRemaining] = useState("30");
+  const [memo, setMemo] = useState("");
   const [type, setType] = useState<MedType>("pill");
   const [color, setColor] = useState(MED_COLORS[0]);
   const [days, setDays] = useState([0, 1, 2, 3, 4, 5, 6]);
@@ -41,7 +80,6 @@ export function AddView({
   const [saving, setSaving] = useState(false);
   const t = useTheme(dark);
   const doseUnit = type === "packet" ? "포" : "정";
-  const remainingUnit = getQuantityUnit(type); // 잔여량 단위는 공통 유틸 사용
 
   const formatDisplay = (raw: string) => {
     const [hh, mm] = raw.split(":");
@@ -70,8 +108,7 @@ export function AddView({
       await onSave({
         name: name.trim(),
         dosage: `${dosage}${doseUnit}`,
-        dosageAmount: parseInt(dosage) || 1,
-        remainingQuantity: parseInt(remaining) || 0,
+        memo: memo.trim(),
         time: formatDisplay(time),
         category: cat,
         type,
@@ -84,7 +121,7 @@ export function AddView({
     } finally {
       setSaving(false);
     }
-  }, [name, saving, time, dosage, doseUnit, remaining, type, color, days, onSave, onBack]);
+  }, [name, saving, time, dosage, doseUnit, memo, type, color, days, onSave, onBack]);
 
   return (
     <div
@@ -199,45 +236,75 @@ export function AddView({
             role="radiogroup"
             aria-label="복용 시간 선택"
           >
-            {[
-              ["🌅", "아침", "08:00"],
-              ["☀️", "점심", "13:00"],
-              ["🌙", "저녁", "19:00"],
-            ].map(([icon, label, t24]) => (
+            {TIME_OPTIONS.map(({ icon: Icon, label, value, accent, accentSoft, glow }) => {
+              const selected = time === value;
+              return (
               <button
-                key={t24}
-                onClick={() => setTime(t24)}
+                key={value}
+                onClick={() => setTime(value)}
                 role="radio"
-                aria-checked={time === t24}
-                className="w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all min-h-[48px]"
+                aria-checked={selected}
+                className="w-full flex items-center justify-between p-4 rounded-[1.35rem] border transition-all min-h-[52px] overflow-hidden"
                 style={{
-                  borderColor: time === t24 ? "#6C63FF" : "transparent",
-                  backgroundColor: time === t24 ? "#6C63FF0D" : t.surface,
+                  borderColor: selected ? accent : t.divider,
+                  backgroundColor: selected ? accentSoft : t.surface,
+                  boxShadow: selected
+                    ? `0 10px 24px ${glow}, inset 0 1px 0 rgba(255,255,255,0.6)`
+                    : "0 1px 0 rgba(255,255,255,0.35)",
                 }}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-xl">{icon}</span>
-                  <span className="font-bold" style={{ color: t.text }}>
-                    {label} ({t24})
-                  </span>
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+                    style={{
+                      background: `linear-gradient(135deg, ${accent} 0%, ${accent}CC 100%)`,
+                      boxShadow: `0 10px 20px ${glow}`,
+                    }}
+                  >
+                    <Icon size={22} strokeWidth={2.3} style={{ color: "#FFFFFF" }} />
+                  </div>
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="font-extrabold tracking-tight text-[1.08rem]" style={{ color: t.text }}>
+                      {label}
+                    </span>
+                    <span className="text-xs font-semibold" style={{ color: t.subtext }}>
+                      {value}
+                    </span>
+                  </div>
                 </div>
                 <div
-                  className="w-4 h-4 rounded-full border-2"
+                  className="w-5 h-5 rounded-full border-2 shrink-0"
                   style={{
-                    backgroundColor: time === t24 ? "#6C63FF" : "transparent",
-                    borderColor: time === t24 ? "#6C63FF" : t.divider,
+                    backgroundColor: selected ? accent : "transparent",
+                    borderColor: selected ? accent : t.divider,
+                    boxShadow: selected ? `0 0 0 5px ${glow}` : "none",
                   }}
                 />
               </button>
-            ))}
+              );
+            })}
             <button
               onClick={() => setShowPicker(true)}
-              className="w-full flex items-center justify-between p-4 rounded-2xl min-h-[48px]"
-              style={{ backgroundColor: t.surface }}
+              className="w-full flex items-center justify-between p-4 rounded-[1.35rem] min-h-[52px] border transition-all"
+              style={{
+                backgroundColor: t.surface,
+                borderColor: t.divider,
+                boxShadow: "0 1px 0 rgba(255,255,255,0.35)",
+              }}
             >
               <div className="flex items-center gap-3">
-                <Clock size={20} style={{ color: t.subtext }} />
-                <span className="font-bold" style={{ color: t.subtext }}>
+                <div
+                  className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+                  style={{
+                    background: dark
+                      ? "linear-gradient(135deg, rgba(108,99,255,0.18), rgba(108,99,255,0.08))"
+                      : "linear-gradient(135deg, rgba(108,99,255,0.12), rgba(108,99,255,0.04))",
+                    border: `1px solid ${t.divider}`,
+                  }}
+                >
+                  <Clock size={20} style={{ color: "#6C63FF" }} />
+                </div>
+                <span className="font-extrabold" style={{ color: t.text }}>
                   직접 설정
                 </span>
               </div>
@@ -270,34 +337,41 @@ export function AddView({
           </div>
         </FormField>
 
-        {/* 용량 / 잔여량 */}
-        <FormField label="용량 / 잔여량" cardBg={t.card} accentColor="#6C63FF">
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: `1회 용량 (${doseUnit})`, val: dosage, set: setDosage },
-              {
-                label: `총 잔여량 (${remainingUnit})`,
-                val: remaining,
-                set: setRemaining,
-              },
-            ].map(({ label, val, set }) => (
-              <div key={label}>
-                <p
-                  className="text-[10px] font-bold mb-2"
-                  style={{ color: t.subtext }}
-                >
-                  {label}
-                </p>
-                <input
-                  type="number"
-                  value={val}
-                  onChange={(e) => set(e.target.value)}
-                  aria-label={label}
-                  className="w-full text-center text-2xl font-black rounded-2xl py-4 outline-none focus:ring-2 focus:ring-[#6C63FF]"
-                  style={{ backgroundColor: t.surface, color: "#6C63FF" }}
-                />
-              </div>
-            ))}
+        {/* 용량 / 메모 */}
+        <FormField label="용량 / 메모" cardBg={t.card} accentColor="#6C63FF">
+          <div className="space-y-3">
+            {/* 1회 용량 */}
+            <div>
+              <p className="text-[10px] font-bold mb-2" style={{ color: t.subtext }}>
+                1회 용량 ({doseUnit})
+              </p>
+              <input
+                type="number"
+                value={dosage}
+                onChange={(e) => setDosage(e.target.value)}
+                aria-label={`1회 용량 (${doseUnit})`}
+                className="w-full text-center text-2xl font-black rounded-2xl py-4 outline-none focus:ring-2 focus:ring-[#6C63FF]"
+                style={{ backgroundColor: t.surface, color: "#6C63FF" }}
+              />
+            </div>
+            {/* 복용 메모 */}
+            <div>
+              <p className="text-[10px] font-bold mb-2" style={{ color: t.subtext }}>
+                복용 메모 (선택)
+              </p>
+              <textarea
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                aria-label="복용 메모"
+                placeholder="예: 식후 30분 복용, 물 한 컵과 함께..."
+                rows={3}
+                className="w-full rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#6C63FF] resize-none"
+                style={{
+                  backgroundColor: t.surface,
+                  color: t.text,
+                }}
+              />
+            </div>
           </div>
         </FormField>
 

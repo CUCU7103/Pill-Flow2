@@ -7,7 +7,6 @@ import { useTheme } from "@/hooks/use-theme";
 import { MedIcon } from "@/components/common/MedIcon";
 import { DeleteModal } from "@/components/modals/DeleteModal";
 import type { Medication, NotifCategories } from "@/types";
-import { getQuantityUnit } from "@/types";
 import { NotificationPopover } from "@/components/NotificationPopover";
 
 /** 오늘의 복용 현황 화면 */
@@ -217,14 +216,11 @@ export function TodayView({
                         <span className="text-xs font-medium" style={{ color: t.subtext }}>
                           {med.dosage}
                         </span>
-                        <span
-                          className="text-xs font-bold"
-                          style={{
-                            color: med.remainingQuantity < 10 ? "#FF6584" : "#06D6A0",
-                          }}
-                        >
-                          잔여 {med.remainingQuantity}{getQuantityUnit(med.type)}
-                        </span>
+                        {med.memo ? (
+                          <span className="text-xs" style={{ color: t.subtext }}>
+                            {med.memo}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                     <button
