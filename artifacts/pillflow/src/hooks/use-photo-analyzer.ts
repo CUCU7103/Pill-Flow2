@@ -84,6 +84,10 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
     // 사용자가 직접 취소한 경우 아무 동작 없이 종료
     if (!dataUrl) return;
 
+    // 이전 분석의 타이머(idle 복귀 포함)와 요청을 정리 (done/error 직후 재진입 시 충돌 방지)
+    clearTimers();
+    abortRef.current?.abort();
+
     // 2. 촬영 완료 — 햅틱 피드백 + uploading 상태 전환
     // 웹/비지원 환경에서 Haptics 실패해도 분석 흐름은 계속 진행
     await Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
