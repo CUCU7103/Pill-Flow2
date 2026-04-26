@@ -75,12 +75,17 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
       statusRef.current !== "error"
     ) return;
 
-    // 1. 카메라 시트 열기 — 권한 거부 시 Error, 취소 시 null 반환
+    // 1. 카메라 시트 열기 — 권한 거부 시 permission_denied, 취소 시 null 반환
     let dataUrl: string | null;
     try {
       dataUrl = await capturePhoto();
-    } catch {
-      toast.error("카메라 권한이 필요해요. 설정에서 허용해주세요.");
+    } catch (err) {
+      const isPermission = err instanceof Error && (err as Error & { type?: string }).type === "permission_denied";
+      toast.error(
+        isPermission
+          ? "카메라 권한이 필요해요. 설정에서 허용해주세요."
+          : "카메라를 열지 못했어요. 다시 시도해주세요."
+      );
       return;
     }
 
@@ -135,10 +140,11 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
       // supabase.functions.invoke는 AbortError를 FunctionsFetchError로 래핑하므로
       // instanceof DOMException 대신 abortRef로 타임아웃 여부를 직접 판별
       const isAbort = abortRef.current?.signal.aborted === true;
+      const errMsg = !isAbort && err instanceof Error ? err.message : null;
       toast.error(
         isAbort
           ? "분석 시간이 초과됐어요. 직접 입력해주세요."
-          : "분석에 실패했어요. 직접 입력해주세요."
+          : (errMsg ?? "분석에 실패했어요. 직접 입력해주세요.")
       );
       updateStatus("error");
 

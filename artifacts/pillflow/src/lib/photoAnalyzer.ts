@@ -1,4 +1,5 @@
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
+import { FunctionsFetchError, FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 export interface AnalyzeResult {
@@ -48,10 +49,12 @@ export async function capturePhoto(): Promise<string | null> {
     });
     return photo.dataUrl ?? null;
   } catch (err) {
-    // 사용자 취소는 Error: "User cancelled photos app" 형태로 옴
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes("cancel") || msg.toLowerCase().includes("dismissed")) {
-      return null;
+    const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+    // 사용자 취소: "User cancelled photos app" / "dismissed"
+    if (msg.includes("cancel") || msg.includes("dismissed")) return null;
+    // 권한 거부: "permission" / "denied" / "not allowed"
+    if (msg.includes("permission") || msg.includes("denied") || msg.includes("not allowed")) {
+      throw Object.assign(new Error("permission_denied"), { type: "permission_denied" });
     }
     throw err;
   }
@@ -71,7 +74,20 @@ export async function analyzeMedicationPhoto(
     signal,
   });
 
-  if (error) throw new Error(error.message ?? "Edge Function 호출 실패");
+  if (error) {
+    // HTTP 상태 코드별 사용자 친화적 에러 분기
+    if (error instanceof FunctionsHttpError) {
+      const status = error.context?.status ?? 0;
+      if (status === 413) throw new Error("이미지가 너무 커요. 더 작은 사진을 사용해주세요.");
+      if (status === 504 || status === 408) throw new Error("분석 서버 응답이 너무 늦어요. 잠시 후 다시 시도해주세요.");
+      if (status >= 500) throw new Error("분석 서버에 일시적 문제가 생겼어요. 잠시 후 다시 시도해주세요.");
+    }
+    if (error instanceof FunctionsFetchError) {
+      // 네트워크 오류 (오프라인 포함) — AbortError는 호출 전 상위에서 처리됨
+      throw new Error("네트워크 연결을 확인해주세요.");
+    }
+    throw new Error(error.message ?? "Edge Function 호출 실패");
+  }
 
   const name = typeof data?.name === "string" ? data.name : null;
   const summary = typeof data?.summary === "string" ? data.summary : "";
