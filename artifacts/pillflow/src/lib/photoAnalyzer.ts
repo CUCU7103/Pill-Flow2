@@ -23,7 +23,12 @@ export async function resizeImageToBase64(dataUrl: string): Promise<string> {
       const ctx = canvas.getContext("2d");
       if (!ctx) return reject(new Error("canvas context 없음"));
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/jpeg", 0.8));
+      const result = canvas.toDataURL("image/jpeg", 0.8);
+      // Android WebView GPU 메모리 명시적 해제
+      canvas.width = 0;
+      canvas.height = 0;
+      img.src = "";
+      resolve(result);
     };
     img.onerror = () => reject(new Error("이미지 로드 실패"));
     img.src = dataUrl;
@@ -60,11 +65,12 @@ export async function analyzeMedicationPhoto(
   imageBase64: string,
   signal: AbortSignal
 ): Promise<AnalyzeResult> {
+  // signal을 invoke에 직접 전달 — invoke 자체가 취소 시 AbortError를 던짐
   const { data, error } = await supabase.functions.invoke("analyze-medication-photo", {
     body: { imageBase64 },
+    signal,
   });
 
-  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   if (error) throw new Error(error.message ?? "Edge Function 호출 실패");
 
   const name = typeof data?.name === "string" ? data.name : null;
