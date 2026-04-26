@@ -1,6 +1,6 @@
 import type { AnalyzeStatus } from "@/hooks/use-photo-analyzer";
 
-// 각 상태별로 표시할 이모지 아이콘 매핑
+// idle은 렌더링되지 않으므로 빈 문자열, 나머지는 상태별 이모지
 const ICONS: Record<AnalyzeStatus, string> = {
   idle: "",
   uploading: "📷",
@@ -33,14 +33,20 @@ export function PhotoAnalyzeBadge({
 
   return (
     <div
+      role="status"
+      aria-live="polite"
+      aria-label={message}
       className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold mx-1"
       style={{ backgroundColor: bgColor, borderColor, color: textColor }}
     >
-      {/* 진행 중이면 스피너, 아니면 상태 이모지 */}
+      {/* 진행 중이면 스피너, 아니면 상태 이모지 — 스크린 리더에는 aria-label로 전달 */}
       {isActive ? (
-        <span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+        <span
+          aria-hidden="true"
+          className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
+        />
       ) : (
-        <span>{ICONS[status]}</span>
+        <span aria-hidden="true">{ICONS[status]}</span>
       )}
       <span>{message}</span>
     </div>
