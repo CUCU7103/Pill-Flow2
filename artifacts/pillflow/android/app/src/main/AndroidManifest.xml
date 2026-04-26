@@ -48,4 +48,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13+ 복약 알림 권한 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 12+ 정확한 시간 알람 권한 (없으면 Doze 모드에서 알림 지연/누락) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Android 14+ 대안 (SCHEDULE_EXACT_ALARM 대신 사용자 설정 없이 허용) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- 부팅 후 알림 재스케줄링 (폰 재시작 시 알람 복구) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

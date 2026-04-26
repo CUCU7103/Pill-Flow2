@@ -1,6 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
+import { App } from "@capacitor/app";
 import { LocalNotifications, type ScheduleOptions } from "@capacitor/local-notifications";
+import { DAY_KEYS_SUN_FIRST } from "@/constants";
 import type { Medication, NotifCategories } from "@/types";
 
 // 채널 정책(사운드/중요도 등)이 바뀔 때마다 버전을 올려야 한다.
@@ -18,8 +20,13 @@ export function useNotifications(
   notif: boolean,
   categories: NotifCategories
 ) {
+  // 최신 meds/notif/categories를 ref에 유지 — 포그라운드 리스너 클로저에서 참조
+  const stateRef = useRef({ meds, notif, categories });
   useEffect(() => {
-    // 웹 환경에서는 Local Notifications API 사용 불가
+    stateRef.current = { meds, notif, categories };
+  });
+
+  useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
     if (notif) {
@@ -29,6 +36,22 @@ export function useNotifications(
     }
     // 객체 참조 대신 원시값으로 풀어서 불필요한 재실행 방지
   }, [meds, notif, categories.morning, categories.lunch, categories.evening]);
+
+  useEffect(() => {
+    // 웹 환경에서는 불필요
+    if (!Capacitor.isNativePlatform()) return;
+
+    // 앱이 포그라운드로 돌아올 때 특정 요일 약의 알림 재스케줄 (1회 예약이라 소진됐을 수 있음)
+    const listenerPromise = App.addListener("appStateChange", ({ isActive }) => {
+      if (!isActive) return;
+      const { meds: m, notif: n, categories: c } = stateRef.current;
+      if (n) scheduleNotifications(m, c);
+    });
+
+    return () => {
+      listenerPromise.then((l) => l.remove()).catch(() => {});
+    };
+  }, []);
 }
 
 /** 알림 채널 생성 (Android 8.0+ 필수 - 채널 단위로 소리/진동 설정) */
@@ -69,42 +92,61 @@ async function scheduleNotifications(meds: Medication[], categories: NotifCatego
     // 기존 알림을 모두 취소하고 새로 스케줄링 (중복 방지)
     await cancelAllNotifications();
 
-    // 완료되지 않은 약 중 활성화된 카테고리에 해당하는 것만 스케줄링
-    const pendingMeds = meds.filter(
-      (m) => !m.completed && categories[m.category] === true
+    // 활성화된 카테고리에 해당하는 약만 스케줄링 (완료 여부는 무시 — 내일도 다시 울려야 함)
+    // days 배열에 해당 요일이 포함된 약만 스케줄링
+    const activeMeds = meds.filter(
+      (m) => categories[m.category] === true && m.days.length > 0
     );
-    if (pendingMeds.length === 0) return;
+    if (activeMeds.length === 0) return;
 
-    const notifications: ScheduleOptions["notifications"] = pendingMeds.map((med, index) => {
-      const [hour, minute] = parseTime(med.time);
+    const notifications = activeMeds
+      .map((med, index) => {
+        const [hour, minute] = parseTime(med.time);
 
-      // 알림 시간 계산 - 오늘 해당 시각 (이미 지났으면 내일)
-      const now = new Date();
-      const scheduled = new Date();
-      scheduled.setHours(hour, minute, 0, 0);
-      if (scheduled <= now) {
-        // 오늘 이미 지난 시간이면 내일 같은 시각으로 설정
-        scheduled.setDate(scheduled.getDate() + 1);
-      }
+        // 오늘부터 시작해서 해당 약의 요일(days)에 해당하는 가장 가까운 다음 날짜 계산
+        const now = new Date();
+        const scheduled = new Date();
+        scheduled.setHours(hour, minute, 0, 0);
 
-      return {
-        // id는 양의 정수여야 하며 약 index 기반으로 고유하게 설정
-        id: index + 1,
-        title: "💊 복약 시간",
-        body: `${med.name} ${med.dosage} 복용할 시간입니다`,
-        schedule: {
-          at: scheduled,
-          // 매일 같은 시각 반복
-          repeats: true,
-          every: "day",
-        },
-        // Android: 채널에서 소리/진동을 제어하므로 여기선 채널 ID만 지정
-        channelId: CHANNEL_ID,
-        attachments: undefined,
-        actionTypeId: "",
-        extra: { medicationId: med.id },
-      };
-    });
+        // 오늘부터 최대 7일 내 가장 가까운 복용 요일 탐색 (DAY_KEYS_SUN_FIRST: 일=0)
+        let daysToAdd: number | null = null;
+        for (let i = 0; i < 8; i++) {
+          const checkDate = new Date(scheduled);
+          checkDate.setDate(scheduled.getDate() + i);
+          const dayKey = DAY_KEYS_SUN_FIRST[checkDate.getDay()];
+          if (dayKey && med.days.includes(dayKey)) {
+            // 오늘이면 시간도 확인 (이미 지났으면 다음 해당 요일로)
+            if (i === 0 && checkDate <= now) continue;
+            daysToAdd = i;
+            break;
+          }
+        }
+        // 유효한 요일을 찾지 못하면 (잘못된 days 데이터) skip
+        if (daysToAdd === null) return null;
+        scheduled.setDate(scheduled.getDate() + daysToAdd);
+
+        // 7일 모두 복용하는 약은 매일 반복, 특정 요일만이면 다음 해당 날에 1회 예약
+        // (앱 포그라운드 진입 시 재스케줄링으로 연속성 보장)
+        const isEveryDay = med.days.length === 7;
+
+        return {
+          // id는 양의 정수여야 하며 약 index 기반으로 고유하게 설정
+          id: index + 1,
+          title: "💊 복약 시간",
+          body: `${med.name} ${med.dosage} 복용할 시간입니다`,
+          schedule: isEveryDay
+            ? { at: scheduled, repeats: true, every: "day" as const }
+            : { at: scheduled },
+          // Android: 채널에서 소리/진동을 제어하므로 여기선 채널 ID만 지정
+          channelId: CHANNEL_ID,
+          attachments: undefined,
+          actionTypeId: "",
+          extra: { medicationId: med.id },
+        };
+      })
+      .filter((n): n is NonNullable<typeof n> => n !== null);
+
+    if (notifications.length === 0) return;
 
     await LocalNotifications.schedule({ notifications });
   } catch (error) {
