@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   Pill,
+  Camera,
   ChevronLeft,
   Clock,
   ChevronRight,
@@ -14,6 +15,8 @@ import {
   SunMedium,
   MoonStar,
 } from "lucide-react";
+import { usePhotoAnalyzer } from "@/hooks/use-photo-analyzer";
+import { PhotoAnalyzeBadge } from "@/components/common/PhotoAnalyzeBadge";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/use-theme";
@@ -84,6 +87,19 @@ export function AddView({
   const t = useTheme(dark);
   const doseUnit = getDoseUnit(type);
 
+  // 사진 분석 훅 — 결과가 오면 비어있는 필드만 채운다 (이미 입력된 값 보호)
+  const photo = usePhotoAnalyzer({
+    onResult: ({ name: analyzedName, summary }) => {
+      if (!name.trim() && analyzedName) setName(analyzedName);
+      if (!memo.trim() && summary) setMemo(summary);
+      if (!analyzedName) {
+        toast.info("약 이름을 식별하지 못했어요. 직접 입력해주세요.");
+      } else {
+        toast.success("✓ 분석 완료. 내용을 확인해주세요.");
+      }
+    },
+  });
+
   const formatDisplay = (raw: string) => {
     const [hh, mm] = raw.split(":");
     const h = parseInt(hh);
@@ -150,7 +166,23 @@ export function AddView({
               복용 정보를 입력해주세요
             </p>
           </div>
+          {/* 카메라 버튼 — 분석 진행 중에는 비활성화 */}
+          <button
+            onClick={photo.start}
+            disabled={
+              photo.status !== "idle" &&
+              photo.status !== "done" &&
+              photo.status !== "error"
+            }
+            aria-label="사진으로 약 정보 자동 입력"
+            className="ml-auto w-11 h-11 rounded-full shadow-sm flex items-center justify-center active:scale-90 transition-transform min-w-[44px] min-h-[44px] disabled:opacity-50"
+            style={{ backgroundColor: t.card }}
+          >
+            <Camera size={22} style={{ color: "#6C63FF" }} />
+          </button>
         </header>
+        {/* 사진 분석 진행 배지 — idle이면 null 반환 */}
+        <PhotoAnalyzeBadge status={photo.status} message={photo.message} dark={dark} />
 
         {/* 약 이름 */}
         <FormField label="약 이름" cardBg={t.card} accentColor="#6C63FF">
