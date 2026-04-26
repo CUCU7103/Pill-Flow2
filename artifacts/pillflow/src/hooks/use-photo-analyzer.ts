@@ -35,6 +35,9 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
   const [status, setStatus] = useState<AnalyzeStatus>("idle");
   // status를 ref로 미러링해 useCallback 의존성에서 제거
   const statusRef = useRef<AnalyzeStatus>("idle");
+  // onResult를 ref로 래핑 — 분석 진행 중 콜백이 교체돼도 항상 최신 함수를 호출
+  const onResultRef = useRef(onResult);
+  useEffect(() => { onResultRef.current = onResult; }, [onResult]);
   const abortRef = useRef<AbortController | null>(null);
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -122,7 +125,7 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
 
       clearTimers();
       updateStatus("done");
-      onResult(result);
+      onResultRef.current(result);
 
       // 완료 상태를 1초간 표시 후 idle 복귀 — ref로 추적하여 언마운트 시 정리 가능
       idleTimerRef.current = setTimeout(() => updateStatus("idle"), 1_000);
@@ -141,7 +144,7 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
       // 에러 상태를 3초간 표시 후 idle 복귀 — ref로 추적하여 언마운트 시 정리 가능
       idleTimerRef.current = setTimeout(() => updateStatus("idle"), 3_000);
     }
-  }, [onResult]); // status 의존성 제거 — statusRef로 대체하여 불필요한 재생성 방지
+  }, []); // status, onResult 의존성 제거 — 각각 statusRef, onResultRef로 대체
 
   return {
     status,
