@@ -44,8 +44,12 @@ export async function capturePhoto(): Promise<string | null> {
   try {
     const photo = await Camera.getPhoto({
       resultType: CameraResultType.DataUrl,
-      source: CameraSource.Prompt, // 촬영/갤러리 선택 시트 표시
+      source: CameraSource.Prompt,
       quality: 80,
+      promptLabelHeader: "사진",
+      promptLabelPhoto: "갤러리에서 가져오기",
+      promptLabelPicture: "카메라 사용하기",
+      promptLabelCancel: "취소",  // iOS 전용 — Android Capacitor 플러그인은 미지원
     });
     return photo.dataUrl ?? null;
   } catch (err) {
@@ -56,7 +60,8 @@ export async function capturePhoto(): Promise<string | null> {
     if (msg.includes("permission") || msg.includes("denied") || msg.includes("not allowed")) {
       throw Object.assign(new Error("permission_denied"), { type: "permission_denied" });
     }
-    throw err;
+    // 기타 카메라 에러 — Capacitor 내부 영문 메시지 대신 한글 메시지로 래핑
+    throw new Error("카메라를 열지 못했어요. 다시 시도해주세요.");
   }
 }
 

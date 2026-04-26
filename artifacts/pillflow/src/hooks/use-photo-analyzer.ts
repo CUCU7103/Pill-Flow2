@@ -80,7 +80,7 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
     try {
       dataUrl = await capturePhoto();
     } catch (err) {
-      const isPermission = err instanceof Error && (err as Error & { type?: string }).type === "permission_denied";
+      const isPermission = err instanceof Error && (err as { type?: string }).type === "permission_denied";
       toast.error(
         isPermission
           ? "카메라 권한이 필요해요. 설정에서 허용해주세요."
