@@ -3,6 +3,10 @@ import { Capacitor } from "@capacitor/core";
 import { LocalNotifications, type ScheduleOptions } from "@capacitor/local-notifications";
 import type { Medication, NotifCategories } from "@/types";
 
+// 채널 정책(사운드/중요도 등)이 바뀔 때마다 버전을 올려야 한다.
+// Android NotificationChannel은 한 번 생성되면 불변이므로, ID를 바꿔야 새 설정이 기존 사용자에게 적용된다.
+const CHANNEL_ID = "pillflow-reminders-v2";
+
 /**
  * 복약 알림을 스케줄링하는 훅
  * - 네이티브 앱(Android/iOS)에서만 동작하며, 웹에서는 아무것도 하지 않음
@@ -32,15 +36,23 @@ async function ensureNotificationChannel() {
   // Android 전용 API이며, iOS/웹에서는 무시됨
   try {
     await LocalNotifications.createChannel({
-      id: "pillflow-reminders",
+      id: CHANNEL_ID,
       name: "복약 알림",
       description: "복약 시간을 알려주는 알림",
       importance: 5, // IMPORTANCE_HIGH: 상단 배너 + 소리
-      sound: "default", // 기기 기본 알림음 사용
+      // sound를 생략하면 Android가 시스템 기본 알림음(DEFAULT_NOTIFICATION_URI)을 사용한다.
+      // "default" 문자열을 넣으면 플러그인이 R.raw.default 리소스로 해석해 무음이 된다.
       vibration: true,
     });
   } catch {
     // 채널 생성 실패해도 알림 스케줄링은 계속 진행
+  }
+
+  // 구 채널 제거 — Android 시스템 알림 설정 화면에 죽은 채널이 남지 않도록 정리
+  try {
+    await LocalNotifications.deleteChannel({ id: "pillflow-reminders" });
+  } catch {
+    // 채널이 없거나 이미 삭제된 경우 무시
   }
 }
 
@@ -87,7 +99,7 @@ async function scheduleNotifications(meds: Medication[], categories: NotifCatego
           every: "day",
         },
         // Android: 채널에서 소리/진동을 제어하므로 여기선 채널 ID만 지정
-        channelId: "pillflow-reminders",
+        channelId: CHANNEL_ID,
         attachments: undefined,
         actionTypeId: "",
         extra: { medicationId: med.id },
