@@ -132,8 +132,9 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
     } catch (err) {
       clearTimers();
 
-      // AbortError: 타임아웃, 그 외: 네트워크/서버 오류
-      const isAbort = err instanceof DOMException && err.name === "AbortError";
+      // supabase.functions.invoke는 AbortError를 FunctionsFetchError로 래핑하므로
+      // instanceof DOMException 대신 abortRef로 타임아웃 여부를 직접 판별
+      const isAbort = abortRef.current?.signal.aborted === true;
       toast.error(
         isAbort
           ? "분석 시간이 초과됐어요. 직접 입력해주세요."
