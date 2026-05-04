@@ -2,9 +2,14 @@ import { createRoot } from "react-dom/client";
 import { Toaster } from "sonner";
 import { Capacitor } from "@capacitor/core";
 import { App as CapApp } from "@capacitor/app";
+import { defineCustomElements } from "@ionic/pwa-elements/loader";
 import { supabase } from "@/lib/supabase";
 import App from "./App";
 import "./index.css";
+
+// 웹 브라우저에서 Capacitor Camera 카메라 시트를 표시하기 위한 PWA Elements 초기화
+// 네이티브(Android/iOS)에서는 불필요하지만 호출해도 무해함
+defineCustomElements(window);
 
 /**
  * 네이티브 앱(Android/iOS)에서 Google OAuth 콜백 처리

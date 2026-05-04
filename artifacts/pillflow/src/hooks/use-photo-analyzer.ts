@@ -42,6 +42,8 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 더블탭 재진입 방지 — capturePhoto await 중에도 진입 차단
+  const inFlightRef = useRef(false);
 
   /** status 상태와 ref를 항상 동기화하여 클로저 스탈 방지 */
   const updateStatus = (s: AnalyzeStatus) => {
@@ -68,6 +70,8 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
   }, []);
 
   const start = useCallback(async () => {
+    // 더블탭 재진입 차단 — capturePhoto await 중에도 중복 진입 방지
+    if (inFlightRef.current) return;
     // statusRef로 현재 상태 확인 — useCallback 의존성에서 status 제거
     if (
       statusRef.current !== "idle" &&
@@ -75,11 +79,14 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
       statusRef.current !== "error"
     ) return;
 
+    inFlightRef.current = true;
+
     // 1. 카메라 시트 열기 — 권한 거부 시 permission_denied, 취소 시 null 반환
     let dataUrl: string | null;
     try {
       dataUrl = await capturePhoto();
     } catch (err) {
+      inFlightRef.current = false;
       const isPermission = err instanceof Error && (err as { type?: string }).type === "permission_denied";
       toast.error(
         isPermission
@@ -90,7 +97,10 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
     }
 
     // 사용자가 직접 취소한 경우 아무 동작 없이 종료
-    if (!dataUrl) return;
+    if (!dataUrl) {
+      inFlightRef.current = false;
+      return;
+    }
 
     // 이전 분석의 타이머(idle 복귀 포함)와 요청을 정리 (done/error 직후 재진입 시 충돌 방지)
     clearTimers();
@@ -105,25 +115,25 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
     abortRef.current = new AbortController();
     const { signal } = abortRef.current;
 
-    // 4. 5초 후 "slow" 상태로 전환하여 사용자에게 대기 안내
-    slowTimerRef.current = setTimeout(() => {
-      // statusRef로 현재 상태 직접 확인 — 클로저 스탈 없음
-      if (statusRef.current === "analyzing") updateStatus("slow");
-    }, SLOW_MS);
-
-    // 5. 15초 초과 시 AbortController로 요청 강제 취소
+    // 4. 15초 초과 시 AbortController로 요청 강제 취소
     timeoutRef.current = setTimeout(() => {
       abortRef.current?.abort();
     }, TIMEOUT_MS);
 
     try {
-      // 6. 이미지를 1024px 장변 기준으로 리사이즈
+      // 5. 이미지를 1024px 장변 기준으로 리사이즈
       const resized = await resizeImageToBase64(dataUrl);
 
       // 리사이즈 도중 타임아웃이 발생한 경우 즉시 중단
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 
       updateStatus("analyzing");
+
+      // 6. analyzing 진입 직후 슬로우 타이머 설정
+      // (uploading 단계에서 시작하면 analyzing 전환 전에 발화할 수 있으므로 여기서 시작)
+      slowTimerRef.current = setTimeout(() => {
+        if (statusRef.current === "analyzing") updateStatus("slow");
+      }, SLOW_MS);
 
       // 7. Supabase Edge Function 호출하여 약 정보 분석
       const result = await analyzeMedicationPhoto(resized, signal);
@@ -150,6 +160,8 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
 
       // 에러 상태를 3초간 표시 후 idle 복귀 — ref로 추적하여 언마운트 시 정리 가능
       idleTimerRef.current = setTimeout(() => updateStatus("idle"), 3_000);
+    } finally {
+      inFlightRef.current = false;
     }
   }, []); // status, onResult 의존성 제거 — 각각 statusRef, onResultRef로 대체
 
