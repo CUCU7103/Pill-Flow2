@@ -1,16 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Medication, Category, MedType } from "@/types";
+import type { Medication, MedType } from "@/types";
 
 /** DB 행을 프론트엔드 Medication 타입으로 변환 */
 function toMedication(row: Record<string, unknown>, completedIds: Set<string>): Medication {
+  // times 컬럼 우선, 구버전 time 컬럼 fallback
+  const rawTimes = row.times as string[] | null;
+  const legacyTime = row.time as string | null;
+  const times = rawTimes && rawTimes.length > 0
+    ? rawTimes
+    : legacyTime
+    ? [legacyTime]
+    : ["08:00"];
+
   return {
     id: row.id as string,
     name: row.name as string,
     dosage: row.dosage as string,
     memo: (row.memo as string | null) ?? "",
-    time: row.time as string,
-    category: row.category as Category,
+    times,
     type: row.type as MedType,
     color: row.color as string,
     // DB 컬럼이 없는 구버전 데이터 대비 — 없으면 전체 요일로 fallback
@@ -40,7 +48,7 @@ function getToday() {
  * 복약 데이터를 관리하는 훅
  * @param userId 현재 로그인한 사용자 ID - 모든 쿼리에서 해당 유저의 데이터만 조회/수정
  */
-export function useMedications(userId?: string) {
+export function useMedications(userId?: string | null) {
   const [meds, setMeds] = useState<Medication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,8 +103,7 @@ export function useMedications(userId?: string) {
       name: string;
       dosage: string;
       memo: string;
-      time: string;
-      category: Category;
+      times: string[];
       type: MedType;
       color: string;
       days: string[];
@@ -111,8 +118,7 @@ export function useMedications(userId?: string) {
           name: data.name,
           dosage: data.dosage,
           memo: data.memo,
-          time: data.time,
-          category: data.category,
+          times: data.times,
           type: data.type,
           color: data.color,
           days: data.days,
@@ -140,6 +146,7 @@ export function useMedications(userId?: string) {
 
   // 복용 토글
   const toggleMed = useCallback(async (id: string) => {
+    if (!userId) throw new Error("로그인이 필요합니다.");
     // 이미 처리 중인 약이면 무시 (더블 클릭 방지)
     if (pendingIds.current.has(id)) return;
     pendingIds.current.add(id);
@@ -172,14 +179,12 @@ export function useMedications(userId?: string) {
           .eq("date", today);
         if (delErr) throw delErr;
       } else {
-        // 복용 완료 — 오늘 날짜 로그 삽입 (멀티 탭/기기 중복 방지를 위해 upsert 사용)
+        // 복용 완료 — 오늘 날짜 로그 삽입 (user_id 포함, 이미 존재하면 무시)
         const { error: insErr } = await supabase
           .from("medication_logs")
-          .upsert(
-            { medication_id: id, date: today },
-            { onConflict: "medication_id,date", ignoreDuplicates: true },
-          );
-        if (insErr) throw insErr;
+          .insert({ medication_id: id, date: today, user_id: userId });
+        // 중복 키 오류(23505)는 이미 복용 완료된 것이므로 정상 처리
+        if (insErr && insErr.code !== "23505") throw insErr;
       }
     } catch (err) {
       // 실패 시 낙관적 업데이트 롤백
@@ -192,7 +197,7 @@ export function useMedications(userId?: string) {
     } finally {
       pendingIds.current.delete(id);
     }
-  }, []);
+  }, [userId]);
 
   /**
    * 현재 유저의 모든 복용 기록과 약 데이터를 삭제

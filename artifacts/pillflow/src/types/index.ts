@@ -29,8 +29,8 @@ export interface Medication {
   dosage: string;
   /** 복용 방법 메모 — 사용자가 직접 작성 */
   memo: string;
-  time: string;
-  category: Category;
+  /** 복용 시간 배열 (HH:MM 형식, 최대 4개). 예: ["08:00","13:00"] */
+  times: string[];
   completed: boolean;
   type: MedType;
   color: string;
