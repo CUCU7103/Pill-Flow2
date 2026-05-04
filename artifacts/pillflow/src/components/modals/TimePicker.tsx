@@ -7,14 +7,33 @@ export function TimePicker({
   onClose,
   onConfirm,
   dark,
+  initialTime,
+  minHour,
+  maxHour,
 }: {
   onClose: () => void;
   onConfirm: (t: string) => void;
   dark: boolean;
+  /** HH:MM 형식 초기값. 미전달 시 08:00 */
+  initialTime?: string;
+  /** 선택 가능한 최소 시(0~23) */
+  minHour?: number;
+  /** 선택 가능한 최대 시(0~23) */
+  maxHour?: number;
 }) {
-  const [h, setH] = useState("8");
-  const [m, setM] = useState("00");
-  const [ampm, setAmpm] = useState<"AM" | "PM">("AM");
+  const parseInitial = () => {
+    if (!initialTime) return { h: "8", m: "00", ampm: "AM" as const };
+    const [hStr, mStr] = initialTime.split(":");
+    const hour24 = parseInt(hStr, 10);
+    const isPm = hour24 >= 12;
+    const hour12 = hour24 % 12 || 12;
+    return { h: String(hour12), m: mStr ?? "00", ampm: isPm ? ("PM" as const) : ("AM" as const) };
+  };
+
+  const init = parseInitial();
+  const [h, setH] = useState(init.h);
+  const [m, setM] = useState(init.m);
+  const [ampm, setAmpm] = useState<"AM" | "PM">(init.ampm);
   const t = useTheme(dark);
 
   const confirm = () => {
@@ -24,6 +43,11 @@ export function TimePicker({
     mn = Math.max(0, Math.min(59, mn));
     if (ampm === "PM" && hr < 12) hr += 12;
     if (ampm === "AM" && hr === 12) hr = 0;
+
+    // 시간 범위 벗어나면 경계값으로 클램프
+    if (minHour !== undefined && hr < minHour) hr = minHour;
+    if (maxHour !== undefined && hr > maxHour) hr = maxHour;
+
     onConfirm(`${hr.toString().padStart(2, "0")}:${mn.toString().padStart(2, "0")}`);
     onClose();
   };
