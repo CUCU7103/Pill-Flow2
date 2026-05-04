@@ -6,6 +6,7 @@ import {
 import { useTheme } from "@/hooks/use-theme";
 import { MedIcon } from "@/components/common/MedIcon";
 import { DeleteModal } from "@/components/modals/DeleteModal";
+import { formatMedicationTime } from "@/lib/notificationSchedule";
 import type { Medication, NotifCategories } from "@/types";
 import { NotificationPopover } from "@/components/NotificationPopover";
 
@@ -44,12 +45,21 @@ export function TodayView({
     weekday: "long",
   });
 
+  // 첫 번째 복용 시간 기준으로 시간대 판별
+  function getTimeGroup(times: string[]): "아침" | "점심" | "저녁" {
+    if (!times || times.length === 0) return "아침";
+    const hour = parseInt(times[0].split(":")[0], 10);
+    if (hour >= 16) return "저녁";
+    if (hour >= 11) return "점심";
+    return "아침";
+  }
+
   // 시간대별 그룹핑 (useMemo로 불필요한 재계산 방지)
   const groups = useMemo(
     () => ({
-      "아침": meds.filter((m) => m.category === "morning"),
-      "점심": meds.filter((m) => m.category === "lunch"),
-      "저녁": meds.filter((m) => m.category === "evening"),
+      "아침": meds.filter((m) => getTimeGroup(m.times) === "아침"),
+      "점심": meds.filter((m) => getTimeGroup(m.times) === "점심"),
+      "저녁": meds.filter((m) => getTimeGroup(m.times) === "저녁"),
     }),
     [meds],
   );
@@ -185,7 +195,8 @@ export function TodayView({
                   >
                     <MedIcon type={med.type} color={med.color} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
+                      {/* 약 이름 + 삭제 버튼 한 행 */}
+                      <div className="flex items-center justify-between gap-2">
                         <h4
                           className="font-bold text-base truncate"
                           style={{
@@ -195,29 +206,39 @@ export function TodayView({
                         >
                           {med.name}
                         </h4>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <span
-                            className="text-[10px] font-bold"
-                            style={{ color: t.subtext }}
-                          >
-                            {med.time}
-                          </span>
-                          <button
-                            onClick={() => setDeleteId(med.id)}
-                            aria-label={`${med.name} 삭제`}
-                            className="p-2 active:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                            style={{ color: t.divider }}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => setDeleteId(med.id)}
+                          aria-label={`${med.name} 삭제`}
+                          className="flex-shrink-0 p-1 active:opacity-50 min-w-[32px] min-h-[32px] flex items-center justify-center"
+                          style={{ color: t.divider }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
+                      {/* 복용 시간 칩들 */}
+                      {med.times && med.times.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {med.times.map((t_time) => (
+                            <span
+                              key={t_time}
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                              style={{
+                                backgroundColor: dark ? "rgba(108,99,255,0.18)" : "rgba(108,99,255,0.10)",
+                                color: "#6C63FF",
+                              }}
+                            >
+                              {formatMedicationTime(t_time)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {/* 용량 · 메모 */}
+                      <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs font-medium" style={{ color: t.subtext }}>
                           {med.dosage}
                         </span>
                         {med.memo ? (
-                          <span className="text-xs" style={{ color: t.subtext }}>
+                          <span className="text-xs truncate" style={{ color: t.subtext }}>
                             {med.memo}
                           </span>
                         ) : null}

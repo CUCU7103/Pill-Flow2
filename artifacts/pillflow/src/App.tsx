@@ -38,7 +38,6 @@ export default function App() {
     "pillflow_notif_categories",
     { morning: true, lunch: true, evening: true }
   );
-  const [alarm, setAlarm] = usePersisted<string>("pillflow_alarm", "08:00");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // html 요소에 dark 클래스 동기화 (인증 여부와 무관하게 항상 적용)
@@ -228,8 +227,6 @@ export default function App() {
             onToggleDark={() => setDark(!dark)}
             notif={notif}
             onToggleNotif={handleToggleNotif}
-            alarm={alarm}
-            onAlarmChange={setAlarm}
             user={user}
             onSignOut={handleSignOut}
             onResetAll={resetAll}

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X, Bell, Clock, Moon, User, Shield, Info, LogOut, ChevronRight,
+  X, Bell, Moon, User, Shield, Info, LogOut, ChevronRight,
 } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { useTheme } from "@/hooks/use-theme";
@@ -50,8 +50,6 @@ export function SettingsModal({
   onToggleDark,
   notif,
   onToggleNotif,
-  alarm,
-  onAlarmChange,
   user,
   onSignOut,
   onResetAll,
@@ -61,8 +59,6 @@ export function SettingsModal({
   onToggleDark: () => void;
   notif: boolean;
   onToggleNotif: () => void;
-  alarm: string;
-  onAlarmChange: (t: string) => void;
   user: SupabaseUser;
   onSignOut: () => Promise<void>;
   onResetAll: () => Promise<void>;
@@ -169,25 +165,6 @@ export function SettingsModal({
                       </p>
                     </div>
                     <Toggle on={notif} onToggle={onToggleNotif} />
-                  </div>
-                  {/* 알림 시간 */}
-                  <div className="flex items-center gap-4 px-4 py-4">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#FFD166]/20">
-                      <Clock size={18} style={{ color: "#F59E0B" }} />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-bold" style={{ color: t.text }}>알림 시간</p>
-                      <p className="text-[11px] font-medium" style={{ color: t.subtext }}>
-                        매일 아침 복용 알림
-                      </p>
-                    </div>
-                    <input
-                      type="time"
-                      value={alarm}
-                      onChange={(e) => onAlarmChange(e.target.value)}
-                      aria-label="알림 시간 설정"
-                      className="text-sm font-bold bg-transparent border-none outline-none text-[#6C63FF]"
-                    />
                   </div>
                   {/* 다크 모드 */}
                   <div className="flex items-center gap-4 px-4 py-4">
