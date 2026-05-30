@@ -1,7 +1,7 @@
 import { BarChart3, Award } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from "recharts";
 import { useTheme } from "@/hooks/use-theme";
-import { useStats } from "@/hooks/use-medications";
+import { useStats } from "@/hooks/use-stats";
 import { MedIcon } from "@/components/common/MedIcon";
 import type { Medication } from "@/types";
 
