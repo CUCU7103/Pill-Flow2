@@ -1,4 +1,5 @@
 import type { LocalNotificationSchema, Weekday } from "@capacitor/local-notifications";
+import { getTimeCategory } from "@/lib/timeCategory";
 import type { Medication, NotifCategories } from "@/types";
 
 type DayKey = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
@@ -63,10 +64,9 @@ export function buildMedicationNotifications(
 
     // times 배열의 각 시간마다 요일별 알림 생성
     return med.times.flatMap((timeStr, timeIndex) => {
-      // 시간대 카테고리 판별 — 알림 토글 필터에 사용
+      // 시간대 카테고리 판별 — 알림 토글 필터에 사용 (timeCategory.ts 단일 진실 소스)
       const { hour } = parseMedicationTime(timeStr);
-      const cat: keyof NotifCategories =
-        hour >= 16 ? "evening" : hour >= 11 ? "lunch" : "morning";
+      const cat = getTimeCategory(hour);
       if (categories[cat] !== true) return [];
 
       const { hour: h, minute } = parseMedicationTime(timeStr);

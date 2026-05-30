@@ -7,6 +7,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { MedIcon } from "@/components/common/MedIcon";
 import { DeleteModal } from "@/components/modals/DeleteModal";
 import { formatMedicationTime } from "@/lib/notificationSchedule";
+import { getTimeCategory, TIME_CATEGORY_LABEL } from "@/lib/timeCategory";
 import type { Medication, NotifCategories } from "@/types";
 import { NotificationPopover } from "@/components/NotificationPopover";
 
@@ -45,21 +46,19 @@ export function TodayView({
     weekday: "long",
   });
 
-  // 첫 번째 복용 시간 기준으로 시간대 판별
-  function getTimeGroup(times: string[]): "아침" | "점심" | "저녁" {
-    if (!times || times.length === 0) return "아침";
+  // 첫 번째 복용 시간 기준으로 시간대 판별 (timeCategory.ts 단일 진실 소스 사용)
+  function getMedTimeGroup(times: string[]) {
+    if (!times || times.length === 0) return "morning" as const;
     const hour = parseInt(times[0].split(":")[0], 10);
-    if (hour >= 16) return "저녁";
-    if (hour >= 11) return "점심";
-    return "아침";
+    return getTimeCategory(hour);
   }
 
   // 시간대별 그룹핑 (useMemo로 불필요한 재계산 방지)
   const groups = useMemo(
     () => ({
-      "아침": meds.filter((m) => getTimeGroup(m.times) === "아침"),
-      "점심": meds.filter((m) => getTimeGroup(m.times) === "점심"),
-      "저녁": meds.filter((m) => getTimeGroup(m.times) === "저녁"),
+      [TIME_CATEGORY_LABEL.morning]: meds.filter((m) => getMedTimeGroup(m.times) === "morning"),
+      [TIME_CATEGORY_LABEL.lunch]: meds.filter((m) => getMedTimeGroup(m.times) === "lunch"),
+      [TIME_CATEGORY_LABEL.evening]: meds.filter((m) => getMedTimeGroup(m.times) === "evening"),
     }),
     [meds],
   );
