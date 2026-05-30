@@ -182,9 +182,6 @@ export function MedicationDetailModal({
                   boxShadow: `0 0 0 4px ${med.color}22`,
                 }}
               />
-              <span className="text-sm font-medium" style={{ color: t.text }}>
-                {med.color}
-              </span>
             </div>
           </div>
         </div>
