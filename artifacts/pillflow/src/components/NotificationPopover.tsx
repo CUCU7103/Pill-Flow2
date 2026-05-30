@@ -14,9 +14,9 @@ type Props = {
 
 /** 시간대별 카테고리 표시 정보 */
 const CATEGORY_LABELS: { key: keyof NotifCategories; label: string; time: string }[] = [
-  { key: "morning", label: "아침", time: "06:00 ~ 10:59" },
-  { key: "lunch",   label: "점심", time: "11:00 ~ 16:59" },
-  { key: "evening", label: "저녁", time: "17:00 ~ 23:59" },
+  { key: "morning", label: "아침", time: "06:00 ~ 10:00" },
+  { key: "lunch",   label: "점심", time: "11:00 ~ 16:00" },
+  { key: "evening", label: "저녁", time: "17:00 ~ 23:00" },
 ];
 
 /** Bell 버튼 + 알림 설정 Popover 패널 */
