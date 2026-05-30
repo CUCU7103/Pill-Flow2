@@ -14,7 +14,7 @@ export function AboutModal({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-6 pointer-events-auto"
       style={{ backgroundColor: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}

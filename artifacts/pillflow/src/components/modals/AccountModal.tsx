@@ -43,7 +43,7 @@ export function AccountModal({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-6 pointer-events-auto"
       style={{ backgroundColor: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -51,12 +51,14 @@ export function AccountModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="account-title"
+      onClick={onClose}
     >
       <motion.div
         className="w-full max-w-xs rounded-3xl p-6 space-y-5 shadow-2xl"
         style={{ backgroundColor: t.card }}
         initial={{ scale: 0.9, y: 20 }}
         animate={{ scale: 1, y: 0 }}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
         <div className="flex items-center justify-between">
@@ -64,9 +66,10 @@ export function AccountModal({
             계정 관리
           </h3>
           <button
+            type="button"
             onClick={onClose}
             aria-label="닫기"
-            className="w-8 h-8 rounded-full flex items-center justify-center min-w-[44px] min-h-[44px]"
+            className="w-8 h-8 rounded-full flex items-center justify-center min-w-[44px] min-h-[44px] cursor-pointer"
             style={{ backgroundColor: t.surface }}
           >
             <X size={16} style={{ color: t.subtext }} />
@@ -118,8 +121,9 @@ export function AccountModal({
           {/* 복약 데이터 초기화 */}
           {!confirmingReset ? (
             <button
+              type="button"
               onClick={() => setConfirmingReset(true)}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl min-h-[48px] active:opacity-70"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl min-h-[48px] active:opacity-70 cursor-pointer"
               style={{ backgroundColor: t.surface }}
             >
               <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-orange-100">
@@ -149,16 +153,18 @@ export function AccountModal({
               </p>
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => setConfirmingReset(false)}
-                  className="flex-1 py-2.5 rounded-xl font-bold text-sm min-h-[44px]"
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm min-h-[44px] cursor-pointer"
                   style={{ backgroundColor: t.bg, color: t.subtext }}
                   disabled={resetting}
                 >
                   취소
                 </button>
                 <button
+                  type="button"
                   onClick={handleReset}
-                  className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-orange-500 text-white min-h-[44px] disabled:opacity-50"
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-orange-500 text-white min-h-[44px] disabled:opacity-50 cursor-pointer"
                   disabled={resetting}
                 >
                   {resetting ? "삭제 중..." : "초기화"}
@@ -185,8 +191,9 @@ export function AccountModal({
 
         {/* 닫기 */}
         <button
+          type="button"
           onClick={onClose}
-          className="w-full py-3.5 rounded-2xl font-bold text-sm min-h-[48px]"
+          className="w-full py-3.5 rounded-2xl font-bold text-sm min-h-[48px] cursor-pointer"
           style={{ backgroundColor: t.surface, color: t.subtext }}
         >
           닫기

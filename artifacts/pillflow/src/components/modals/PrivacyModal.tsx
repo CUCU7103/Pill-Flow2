@@ -14,7 +14,7 @@ export function PrivacyModal({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[60] flex items-end"
+      className="fixed inset-0 z-[60] flex items-end pointer-events-auto"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
