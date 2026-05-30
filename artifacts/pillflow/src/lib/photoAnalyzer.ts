@@ -7,6 +7,9 @@ export interface AnalyzeResult {
   summary: string;
 }
 
+/** Supabase Edge Function 또는 테스트용 mock으로 교체 가능한 분석 함수 타입 */
+export type PhotoAnalyzerFn = (imageBase64: string, signal: AbortSignal) => Promise<AnalyzeResult>;
+
 /**
  * 이미지를 1024px 장변 기준으로 리사이즈한 JPEG base64 data URL을 반환한다.
  * <canvas>를 사용하므로 외부 라이브러리 불필요.

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { toast } from "sonner";
 import { capturePhoto, resizeImageToBase64, analyzeMedicationPhoto } from "@/lib/photoAnalyzer";
-import type { AnalyzeResult } from "@/lib/photoAnalyzer";
+import type { AnalyzeResult, PhotoAnalyzerFn } from "@/lib/photoAnalyzer";
 
 export type AnalyzeStatus = "idle" | "uploading" | "analyzing" | "slow" | "done" | "error";
 
@@ -19,6 +19,8 @@ const STATUS_MESSAGES: Record<AnalyzeStatus, string> = {
 interface UsePhotoAnalyzerOpts {
   /** 분석 완료 시 호출 — name이 null이면 약 식별 실패 */
   onResult: (result: AnalyzeResult) => void;
+  /** 기본값: analyzeMedicationPhoto. 테스트 시 mock 함수로 교체 가능 */
+  analyzerFn?: PhotoAnalyzerFn;
 }
 
 interface UsePhotoAnalyzerReturn {
@@ -31,7 +33,9 @@ interface UsePhotoAnalyzerReturn {
 const TIMEOUT_MS = 15_000;  // 15초 최대 대기
 const SLOW_MS = 5_000;      // 5초 경과 시 "slow" 메시지
 
-export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAnalyzerReturn {
+export function usePhotoAnalyzer({ onResult, analyzerFn }: UsePhotoAnalyzerOpts): UsePhotoAnalyzerReturn {
+  // analyzerFn이 없으면 기본 Supabase Edge Function 구현체 사용
+  const analyze = analyzerFn ?? analyzeMedicationPhoto;
   const [status, setStatus] = useState<AnalyzeStatus>("idle");
   // status를 ref로 미러링해 useCallback 의존성에서 제거
   const statusRef = useRef<AnalyzeStatus>("idle");
@@ -135,8 +139,8 @@ export function usePhotoAnalyzer({ onResult }: UsePhotoAnalyzerOpts): UsePhotoAn
         if (statusRef.current === "analyzing") updateStatus("slow");
       }, SLOW_MS);
 
-      // 7. Supabase Edge Function 호출하여 약 정보 분석
-      const result = await analyzeMedicationPhoto(resized, signal);
+      // 7. 분석 함수 호출 (기본값: Supabase Edge Function, 테스트 시 mock으로 교체 가능)
+      const result = await analyze(resized, signal);
 
       clearTimers();
       updateStatus("done");
