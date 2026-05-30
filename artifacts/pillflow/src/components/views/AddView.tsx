@@ -338,28 +338,32 @@ export function AddView({
                   aria-label="약 유형 선택"
                 >
                   {[
-                    { id: "tablet"   as const, label: "알약",   Icon: Pill },
-                    { id: "syrup"    as const, label: "시럽",   Icon: Droplets },
-                    { id: "powder"   as const, label: "포장약", Icon: Package },
-                    { id: "ointment" as const, label: "연고",   Icon: Hand },
-                    { id: "drops"    as const, label: "점안액", Icon: Eye },
-                    { id: "inhaler"  as const, label: "흡입제", Icon: Wind },
-                  ].map(({ id, label, Icon }) => (
-                    <button
-                      key={id}
-                      onClick={() => setType(id)}
-                      role="radio"
-                      aria-checked={type === id}
-                      className="flex flex-col items-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 min-h-[48px]"
-                      style={{
-                        backgroundColor: type === id ? "#6C63FF" : t.surface,
-                        color: type === id ? "#fff" : t.subtext,
-                      }}
-                    >
-                      <Icon size={28} fill={type === id ? "rgba(255,255,255,0.3)" : "none"} />
-                      {label}
-                    </button>
-                  ))}
+                    { id: "tablet"   as const, label: "알약",   Icon: Pill,     bg: "#EDE9FE", color: "#7C3AED" },
+                    { id: "syrup"    as const, label: "시럽",   Icon: Droplets, bg: "#DBEAFE", color: "#2563EB" },
+                    { id: "powder"   as const, label: "포장약", Icon: Package,  bg: "#FEF3C7", color: "#D97706" },
+                    { id: "ointment" as const, label: "연고",   Icon: Hand,     bg: "#D1FAE5", color: "#059669" },
+                    { id: "drops"    as const, label: "점안액", Icon: Eye,      bg: "#FCE7F3", color: "#DB2777" },
+                    { id: "inhaler"  as const, label: "흡입제", Icon: Wind,     bg: "#E0F2FE", color: "#0284C7" },
+                  ].map(({ id, label, Icon, bg, color }) => {
+                    const isSelected = type === id;
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setType(id)}
+                        role="radio"
+                        aria-checked={isSelected}
+                        className="flex flex-col items-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 min-h-[48px]"
+                        style={{
+                          backgroundColor: isSelected ? color : bg,
+                          color: isSelected ? "#fff" : color,
+                          border: isSelected ? `2px solid ${color}` : "2px solid transparent",
+                        }}
+                      >
+                        <Icon size={28} fill={isSelected ? "rgba(255,255,255,0.3)" : color} strokeWidth={1.5} />
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
               </FormField>
 

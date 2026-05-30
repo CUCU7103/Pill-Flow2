@@ -200,8 +200,8 @@ export function TodayView({
                       <MedIcon type={med.type} color={med.color} />
                     </button>
                     <div className="flex-1 min-w-0">
-                      {/* 약 이름 + 삭제 버튼 한 행 */}
-                      <div className="flex items-center justify-between gap-2">
+                      {/* 약 이름 */}
+                      <div className="flex items-center gap-2">
                         <h4
                           className="font-bold text-base truncate"
                           style={{
@@ -211,18 +211,6 @@ export function TodayView({
                         >
                           {med.name}
                         </h4>
-                        <button
-                          onClick={() => setDeleteId(med.id)}
-                          aria-label={`${med.name} 삭제`}
-                          className="flex-shrink-0 w-10 h-10 rounded-full border shadow-sm active:scale-95 transition-transform flex items-center justify-center"
-                          style={{
-                            backgroundColor: dark ? "rgba(248,113,113,0.14)" : "rgba(248,113,113,0.10)",
-                            borderColor: dark ? "rgba(248,113,113,0.28)" : "rgba(248,113,113,0.22)",
-                            color: "#EF4444",
-                          }}
-                        >
-                          <Trash2 size={16} strokeWidth={2.4} />
-                        </button>
                       </div>
                       {/* 복용 시간 칩들 */}
                       {med.times && med.times.length > 0 && (
@@ -253,37 +241,51 @@ export function TodayView({
                         ) : null}
                       </div>
                     </div>
-                    <button
-                      onClick={() => onToggle(med.id)}
-                      aria-label={`${med.name} ${med.completed ? "복용 취소" : "복용 완료"}`}
-                      className="flex-shrink-0 active:scale-90 transition-transform min-w-[48px] min-h-[48px] flex items-center justify-center"
-                    >
-                      {med.completed ? (
-                        <div
-                          className="w-11 h-11 rounded-full flex items-center justify-center shadow-md"
-                          style={{
-                            background: "linear-gradient(135deg,#6C63FF,#9B8FFF)",
-                            boxShadow: "0 10px 24px rgba(108,99,255,0.24)",
-                          }}
-                        >
-                          <CheckCircle2 size={24} className="text-white" fill="#6C63FF" strokeWidth={2.6} />
-                        </div>
-                      ) : (
-                        <div
-                          className="w-11 h-11 rounded-full border-2 flex items-center justify-center shadow-sm"
-                          style={{
-                            backgroundColor: dark ? "rgba(108,99,255,0.16)" : "rgba(108,99,255,0.10)",
-                            borderColor: dark ? "rgba(108,99,255,0.45)" : "rgba(108,99,255,0.55)",
-                            boxShadow: dark ? "0 0 0 4px rgba(108,99,255,0.10)" : "0 0 0 4px rgba(108,99,255,0.06)",
-                          }}
-                        >
+                    <div className="flex items-center gap-2 flex-shrink-0 self-center">
+                      <button
+                        onClick={() => setDeleteId(med.id)}
+                        aria-label={`${med.name} 삭제`}
+                        className="flex-shrink-0 w-11 h-11 rounded-full border shadow-sm active:scale-95 transition-transform flex items-center justify-center"
+                        style={{
+                          backgroundColor: dark ? "rgba(248,113,113,0.14)" : "rgba(248,113,113,0.10)",
+                          borderColor: dark ? "rgba(248,113,113,0.28)" : "rgba(248,113,113,0.22)",
+                          color: "#EF4444",
+                        }}
+                      >
+                        <Trash2 size={16} strokeWidth={2.4} />
+                      </button>
+                      <button
+                        onClick={() => onToggle(med.id)}
+                        aria-label={`${med.name} ${med.completed ? "복용 취소" : "복용 완료"}`}
+                        className="flex-shrink-0 active:scale-90 transition-transform min-w-[48px] min-h-[48px] flex items-center justify-center"
+                      >
+                        {med.completed ? (
                           <div
-                            className="w-4 h-4 rounded-full"
-                            style={{ backgroundColor: dark ? "rgba(108,99,255,0.85)" : "#6C63FF" }}
-                          />
-                        </div>
-                      )}
-                    </button>
+                            className="w-11 h-11 rounded-full flex items-center justify-center shadow-md"
+                            style={{
+                              background: "linear-gradient(135deg,#6C63FF,#9B8FFF)",
+                              boxShadow: "0 10px 24px rgba(108,99,255,0.24)",
+                            }}
+                          >
+                            <CheckCircle2 size={24} className="text-white" fill="#6C63FF" strokeWidth={2.6} />
+                          </div>
+                        ) : (
+                          <div
+                            className="w-11 h-11 rounded-full border-2 flex items-center justify-center shadow-sm"
+                            style={{
+                              backgroundColor: dark ? "rgba(108,99,255,0.16)" : "rgba(108,99,255,0.10)",
+                              borderColor: dark ? "rgba(108,99,255,0.45)" : "rgba(108,99,255,0.55)",
+                              boxShadow: dark ? "0 0 0 4px rgba(108,99,255,0.10)" : "0 0 0 4px rgba(108,99,255,0.06)",
+                            }}
+                          >
+                            <div
+                              className="w-4 h-4 rounded-full"
+                              style={{ backgroundColor: dark ? "rgba(108,99,255,0.85)" : "#6C63FF" }}
+                            />
+                          </div>
+                        )}
+                      </button>
+                    </div>
                   </motion.div>
                 ))}
               </div>
