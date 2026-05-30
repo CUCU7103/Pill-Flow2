@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Pill,
@@ -105,6 +105,9 @@ export function AddView({
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
+  // 이름 입력 필드 ref — 사진 분석 실패 시 자동 포커스에 사용
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
   // Step 1
   const [name, setName] = useState("");
   const [type, setType] = useState<MedType>("tablet");
@@ -139,6 +142,8 @@ export function AddView({
       if (!memo.trim() && summary) setMemo(summary);
       if (!analyzedName) {
         toast.info("약 이름을 식별하지 못했어요. 직접 입력해주세요.");
+        // 식별 실패 시 이름 필드로 포커스 이동 (toast 렌더링 이후 포커스가 가도록 50ms 지연)
+        setTimeout(() => nameInputRef.current?.focus(), 50);
       } else {
         toast.success("✓ 분석 완료. 내용을 확인해주세요.");
       }
@@ -285,8 +290,12 @@ export function AddView({
           ))}
         </div>
 
-        {/* 사진 분석 배지 */}
-        <PhotoAnalyzeBadge status={photo.status} message={photo.message} dark={dark} />
+        {/* 사진 분석 배지 — Step 1에서만 AnimatePresence로 마운트/언마운트 애니메이션 */}
+        <AnimatePresence>
+          {step === 1 && (
+            <PhotoAnalyzeBadge status={photo.status} message={photo.message} dark={dark} />
+          )}
+        </AnimatePresence>
 
         <AnimatePresence mode="wait">
           {/* ───── Step 1: 약 이름 + 유형 + 용량 ───── */}
@@ -310,6 +319,7 @@ export function AddView({
                 >
                   <Pill size={18} style={{ color: "#6C63FF" }} />
                   <input
+                    ref={nameInputRef}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="예: 마그네슘, 종합비타민..."
