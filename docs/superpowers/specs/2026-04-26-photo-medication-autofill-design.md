@@ -373,6 +373,34 @@ interface UsePhotoAnalyzerReturn {
 
 ---
 
+## 11. 설계 리뷰 보완 사항 (2026-05-30)
+
+이번 `/plan-design-review` 세션에서 확정된 추가 설계 결정:
+
+### 11.1 PhotoAnalyzeBadge Step 범위
+- **결정**: Step 1에서만 배지 표시. Step 2/3에서는 배지 숨김.
+- **구현**: `AddView.tsx`에서 `{step === 1 && <PhotoAnalyzeBadge ... />}` 조건 추가.
+- **근거**: Step 2/3에서 배지가 보이면 사용자가 분석 중임을 인지하지만 결과(name/memo)가 채워지는 순간을 놓침.
+
+### 11.2 PhotoAnalyzeBadge 등장/사라짐 애니메이션
+- **결정**: Framer Motion `AnimatePresence`로 slideDown + fadeIn (0.2s) / slideUp + fadeOut (0.15s) 적용.
+- **구현**: `PhotoAnalyzeBadge`를 `AnimatePresence > motion.div`로 래핑, `initial/animate/exit` prop 추가.
+- **근거**: 현재 `return null` 방식은 레이아웃 점프 유발. 부드러운 전환으로 모바일 UX 개선.
+
+### 11.3 식별 실패 시 이름 필드 자동 포커스 (누락 구현)
+- **결정**: 설계 문서 4.2에 명시된 "이름 필드에 자동 포커스" 구현.
+- **구현**: `AddView.tsx`에 `nameInputRef` 생성, `onResult` 콜백에서 `analyzedName === null`일 때 `nameInputRef.current?.focus()` 호출.
+- **근거**: 포커스 없으면 사용자가 직접 이름 필드를 찾아 탭해야 함. 키보드 자동 등장 = 즉시 입력 가능 상태.
+
+### 11.4 PhotoAnalyzeBadge 색상 CSS 변수 정렬
+- **결정**: 인라인 `#6C63FF` 하드코딩을 Tailwind `text-accent`/`bg-accent` 클래스로 교체.
+- **구현**: `index.css`의 `--color-accent` CSS 변수를 활용한 Tailwind 클래스 사용.
+- **근거**: 액센트 색상 변경 시 배지만 누락되는 단일 실패점 제거.
+
+### 11.5 배지 위치
+- **결정**: 현행 유지 (스크롤 따라감). sticky 고정 불필요.
+- **근거**: Step 1 화면이 화면 높이를 넘기기 어렵고, 배지 지속 시간(1~4초)이 짧아 sticky 필요성 낮음.
+
 ## 10. 보안 메모 (중요)
 
 브레인스토밍 중 사용자가 채팅에 Groq API 키 일부를 노출했다 (`gsk_...`). 이 키는 다음 조치가 필수:
