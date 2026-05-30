@@ -3,12 +3,12 @@ export type TimeCategory = "morning" | "lunch" | "evening";
 
 /**
  * 시간(0-23)을 복용 시간대 카테고리로 변환한다.
- * - 16시 이상 → 저녁 (evening)
- * - 11시 이상 → 점심 (lunch)
+ * - 17시 이상 → 저녁 (evening)  ← UI: NotificationPopover "17:00 ~ 23:59"
+ * - 11시 이상 → 점심 (lunch)    ← UI: NotificationPopover "11:00 ~ 16:59"
  * - 나머지 → 아침 (morning)
  */
 export function getTimeCategory(hour: number): TimeCategory {
-  if (hour >= 16) return "evening";
+  if (hour >= 17) return "evening";
   if (hour >= 11) return "lunch";
   return "morning";
 }

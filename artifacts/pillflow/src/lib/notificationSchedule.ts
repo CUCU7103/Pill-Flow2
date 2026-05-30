@@ -113,6 +113,9 @@ function getNotificationId(medicationId: string, weekday: Weekday, timeIndex: nu
   for (let i = 0; i < medicationId.length; i += 1) {
     hash = (hash * 31 + medicationId.charCodeAt(i)) >>> 0;
   }
-  // timeIndex(0~3)를 100 단위로 분리해 같은 약의 다른 시간대가 겹치지 않도록 함
-  return ((hash % 50_000_000) * 100 + Number(weekday) * 10 + timeIndex) || Number(weekday) * 10 + timeIndex;
+  // Java int max(2_147_483_647) 이하로 유지해야 Android에서 알림 ID가 유효하다.
+  // weekday(1~7) × timeIndex(0~3) 조합은 최대 32가지 → 하위 5비트 예약
+  // hash 공간: 2_147_483_647 / 32 = 67_108_863 → hash % 67_108_864
+  const suffix = Number(weekday) * 4 + timeIndex; // 0~31
+  return ((hash % 67_108_864) * 32 + suffix) || suffix;
 }
