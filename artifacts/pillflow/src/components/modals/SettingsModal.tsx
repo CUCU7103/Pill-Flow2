@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import {
   X, Bell, Moon, User, Shield, Info, LogOut, ChevronRight,
 } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { Drawer } from "vaul";
 import { useTheme } from "@/hooks/use-theme";
 import { Toggle } from "@/components/common/Toggle";
 import { APP_VERSION } from "@/constants";
@@ -79,32 +80,35 @@ export function SettingsModal({
 
   return (
     <>
-      <AnimatePresence>
-        <motion.div
-          className="fixed inset-0 z-50 flex items-end"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="설정"
-        >
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-          <motion.div
-            className="relative w-full rounded-t-[2rem] overflow-y-auto max-h-[90vh]"
+      <Drawer.Root
+        open
+        direction="bottom"
+        modal
+        dismissible
+        handleOnly={false}
+        closeThreshold={0.18}
+        scrollLockTimeout={300}
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+      >
+        <Drawer.Portal>
+          <Drawer.Overlay
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          <Drawer.Content
+            className="fixed inset-x-0 bottom-0 z-50 flex h-auto max-h-[90dvh] flex-col overflow-hidden rounded-t-[2rem] outline-none"
             style={{ backgroundColor: t.card }}
-            initial={{ y: "100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 300 }}
           >
-            {/* 핸들 */}
-            <div className="flex justify-center pt-3 pb-1">
-              <div className="w-10 h-1 rounded-full" style={{ backgroundColor: t.divider }} />
-            </div>
-            {/* 헤더 */}
+            <Drawer.Handle
+              className="mx-auto mt-3 h-1 w-10 rounded-full"
+              style={{ backgroundColor: t.divider }}
+              aria-label="설정을 아래로 드래그하여 닫기"
+            />
+
             <div
-              className="flex items-center justify-between px-6 py-4 border-b"
+              className="flex items-center justify-between border-b px-6 py-4 flex-shrink-0"
               style={{ borderColor: t.divider }}
             >
               <h2 className="text-xl font-extrabold" style={{ color: t.text }}>
@@ -120,7 +124,7 @@ export function SettingsModal({
               </button>
             </div>
 
-            <div className="px-6 py-5 space-y-6 pb-12">
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 pb-12">
               {/* 프로필 - 구글 계정 정보 표시 */}
               <div
                 className="rounded-2xl p-4 flex items-center gap-4"
@@ -260,9 +264,9 @@ export function SettingsModal({
                 로그아웃
               </button>
             </div>
-          </motion.div>
-        </motion.div>
-      </AnimatePresence>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
 
       {/* 서브 모달 — SettingsModal 위에 레이어 (z-[60]) */}
       <AnimatePresence>
