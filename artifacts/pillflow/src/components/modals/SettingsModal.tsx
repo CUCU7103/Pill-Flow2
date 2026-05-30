@@ -79,8 +79,7 @@ export function SettingsModal({
   const email = user.email ?? "";
 
   return (
-    <>
-      <Drawer.Root
+    <Drawer.Root
         open
         direction="bottom"
         modal
@@ -265,30 +264,28 @@ export function SettingsModal({
               </button>
             </div>
           </Drawer.Content>
-        </Drawer.Portal>
-      </Drawer.Root>
-
-      {/* 서브 모달 — SettingsModal 위에 레이어 (z-[60]) */}
-      <AnimatePresence>
-        {privacyOpen && (
-          <PrivacyModal onClose={() => setPrivacyOpen(false)} dark={dark} />
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {aboutOpen && (
-          <AboutModal onClose={() => setAboutOpen(false)} dark={dark} />
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {accountOpen && (
-          <AccountModal
-            onClose={() => setAccountOpen(false)}
-            dark={dark}
-            user={user}
-            onResetAll={onResetAll}
-          />
-        )}
-      </AnimatePresence>
-    </>
+        {/* 서브 모달 — Drawer.Portal 안에서 렌더링해야 vaul 이벤트 인터셉션을 우회할 수 있음 */}
+        <AnimatePresence>
+          {privacyOpen && (
+            <PrivacyModal onClose={() => setPrivacyOpen(false)} dark={dark} />
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {aboutOpen && (
+            <AboutModal onClose={() => setAboutOpen(false)} dark={dark} />
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {accountOpen && (
+            <AccountModal
+              onClose={() => setAccountOpen(false)}
+              dark={dark}
+              user={user}
+              onResetAll={onResetAll}
+            />
+          )}
+        </AnimatePresence>
+      </Drawer.Portal>
+    </Drawer.Root>
   );
 }

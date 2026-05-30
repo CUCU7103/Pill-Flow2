@@ -1,11 +1,12 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Settings, Plus, Sparkles, CheckCircle2, Trash2, Flame,
+  Settings, Plus, CheckCircle2, Trash2, Flame,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { MedIcon } from "@/components/common/MedIcon";
 import { DeleteModal } from "@/components/modals/DeleteModal";
+import { MedicationDetailModal } from "@/components/modals/MedicationDetailModal";
 import { formatMedicationTime } from "@/lib/notificationSchedule";
 import { getTimeCategory, TIME_CATEGORY_LABEL } from "@/lib/timeCategory";
 import type { Medication, NotifCategories } from "@/types";
@@ -36,6 +37,7 @@ export function TodayView({
   onToggleCategory: (key: keyof NotifCategories) => void;
 }) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [detailMed, setDetailMed] = useState<Medication | null>(null);
   const t = useTheme(dark);
   const completed = meds.filter((m) => m.completed).length;
   const total = meds.length;
@@ -141,9 +143,6 @@ export function TodayView({
                     : `아직 ${total - completed}개가 남았어요`}
                 </p>
               </div>
-              <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                <Sparkles size={28} className="text-white" />
-              </div>
             </div>
             <div className="mt-5 h-2 bg-white/20 rounded-full overflow-hidden">
               <motion.div
@@ -192,7 +191,14 @@ export function TodayView({
                     }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    <MedIcon type={med.type} color={med.color} />
+                    <button
+                      type="button"
+                      onClick={() => setDetailMed(med)}
+                      aria-label={`${med.name} 상세정보 열기`}
+                      className="flex-shrink-0 active:scale-95 transition-transform rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-400"
+                    >
+                      <MedIcon type={med.type} color={med.color} />
+                    </button>
                     <div className="flex-1 min-w-0">
                       {/* 약 이름 + 삭제 버튼 한 행 */}
                       <div className="flex items-center justify-between gap-2">
@@ -208,10 +214,14 @@ export function TodayView({
                         <button
                           onClick={() => setDeleteId(med.id)}
                           aria-label={`${med.name} 삭제`}
-                          className="flex-shrink-0 p-1 active:opacity-50 min-w-[32px] min-h-[32px] flex items-center justify-center"
-                          style={{ color: t.divider }}
+                          className="flex-shrink-0 w-10 h-10 rounded-full border shadow-sm active:scale-95 transition-transform flex items-center justify-center"
+                          style={{
+                            backgroundColor: dark ? "rgba(248,113,113,0.14)" : "rgba(248,113,113,0.10)",
+                            borderColor: dark ? "rgba(248,113,113,0.28)" : "rgba(248,113,113,0.22)",
+                            color: "#EF4444",
+                          }}
                         >
-                          <Trash2 size={14} />
+                          <Trash2 size={16} strokeWidth={2.4} />
                         </button>
                       </div>
                       {/* 복용 시간 칩들 */}
@@ -246,15 +256,32 @@ export function TodayView({
                     <button
                       onClick={() => onToggle(med.id)}
                       aria-label={`${med.name} ${med.completed ? "복용 취소" : "복용 완료"}`}
-                      className="flex-shrink-0 active:scale-90 transition-transform min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      className="flex-shrink-0 active:scale-90 transition-transform min-w-[48px] min-h-[48px] flex items-center justify-center"
                     >
                       {med.completed ? (
-                        <CheckCircle2 size={26} style={{ color: "#6C63FF" }} fill="#6C63FF" />
+                        <div
+                          className="w-11 h-11 rounded-full flex items-center justify-center shadow-md"
+                          style={{
+                            background: "linear-gradient(135deg,#6C63FF,#9B8FFF)",
+                            boxShadow: "0 10px 24px rgba(108,99,255,0.24)",
+                          }}
+                        >
+                          <CheckCircle2 size={24} className="text-white" fill="#6C63FF" strokeWidth={2.6} />
+                        </div>
                       ) : (
                         <div
-                          className="w-[26px] h-[26px] rounded-full border-2"
-                          style={{ borderColor: t.divider }}
-                        />
+                          className="w-11 h-11 rounded-full border-2 flex items-center justify-center shadow-sm"
+                          style={{
+                            backgroundColor: dark ? "rgba(108,99,255,0.16)" : "rgba(108,99,255,0.10)",
+                            borderColor: dark ? "rgba(108,99,255,0.45)" : "rgba(108,99,255,0.55)",
+                            boxShadow: dark ? "0 0 0 4px rgba(108,99,255,0.10)" : "0 0 0 4px rgba(108,99,255,0.06)",
+                          }}
+                        >
+                          <div
+                            className="w-4 h-4 rounded-full"
+                            style={{ backgroundColor: dark ? "rgba(108,99,255,0.85)" : "#6C63FF" }}
+                          />
+                        </div>
                       )}
                     </button>
                   </motion.div>
@@ -299,6 +326,13 @@ export function TodayView({
               onDelete(deleteId);
               setDeleteId(null);
             }}
+          />
+        )}
+        {detailMed && (
+          <MedicationDetailModal
+            med={detailMed}
+            dark={dark}
+            onClose={() => setDetailMed(null)}
           />
         )}
       </AnimatePresence>

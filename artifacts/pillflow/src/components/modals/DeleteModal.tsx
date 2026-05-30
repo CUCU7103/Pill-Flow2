@@ -32,8 +32,15 @@ export function DeleteModal({
         animate={{ scale: 1, y: 0 }}
       >
         <div className="text-center space-y-2">
-          <div className="w-16 h-16 rounded-2xl bg-red-100 text-red-400 flex items-center justify-center mx-auto mb-4">
-            <Trash2 size={30} />
+          <div
+            className="w-16 h-16 rounded-2xl border flex items-center justify-center mx-auto mb-4 shadow-sm"
+            style={{
+              backgroundColor: dark ? "rgba(248,113,113,0.16)" : "rgba(248,113,113,0.10)",
+              borderColor: dark ? "rgba(248,113,113,0.22)" : "rgba(248,113,113,0.18)",
+              color: "#EF4444",
+            }}
+          >
+            <Trash2 size={30} strokeWidth={2.4} />
           </div>
           <h3 id="delete-title" className="text-xl font-bold" style={{ color: t.text }}>
             정말 삭제할까요?
