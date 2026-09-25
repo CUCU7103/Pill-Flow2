@@ -1,250 +1,92 @@
-# Pill-Flow2 프로젝트 아키텍처 문서
+# PillFlow 아키텍처
 
-> 최종 업데이트: 2026-04-08
+> 최종 업데이트: 2026-09-25
 
----
+## 1. 현재 구조와 목표
 
-## 1. 개요
+PillFlow는 React SPA를 웹(Vercel)과 Android(Capacitor)에서 사용한다. 현재 앱은 로그인에 Supabase Auth를 사용하고, 복약 데이터를 Supabase PostgREST로 직접 읽고 쓴다. `backend/`의 Kotlin Spring Boot 서버와 Flyway 스키마는 서버 전환을 위한 기반 단계이며 아직 약·복용 API나 앱의 API 전환을 포함하지 않는다.
 
-PillFlow는 약 복용 관리 앱으로, **React 웹 앱 + Android 네이티브 앱(Capacitor)** 구조로 구성되어 있습니다.  
-프론트엔드는 **Vercel**, 백엔드 API 서버는 **Supabase**, 데이터베이스도 **Supabase PostgreSQL**을 사용합니다.
-
----
-
-## 2. 전체 배포 구조
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     클라이언트                           │
-│  ┌──────────────────┐    ┌───────────────────────────┐  │
-│  │  Android 앱      │    │   웹 브라우저              │  │
-│  │  (Capacitor)     │    │                           │  │
-│  └────────┬─────────┘    └─────────────┬─────────────┘  │
-└───────────┼──────────────────────────┼─────────────────┘
-            │                          │
-            ▼                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              Vercel (프론트엔드)                         │
-│  React SPA (Vite 빌드)                                  │
-│  도메인: pillflow.vercel.app (또는 커스텀 도메인)        │
-│  빌드 명령: pnpm --filter @workspace/pillflow build      │
-│  출력 경로: artifacts/pillflow/dist/public              │
-└──────────────┬──────────────────────┬───────────────────┘
-               │ REST API 호출         │ Supabase Auth 직접 연결
-               ▼                      ▼
-┌──────────────────────┐  ┌─────────────────────────────┐
-│ Supabase (백엔드)    │  │ Supabase (Auth)             │
-│ Express.js API 서버  │  │ 사용자 인증/세션 관리        │
-│ /api/healthz 등      │  │ androidScheme: https 필수   │
-└──────────┬───────────┘  └─────────────────────────────┘
-           │ Drizzle ORM (DATABASE_URL)
-           ▼
-┌─────────────────────────────────────────────────────────┐
-│              Supabase PostgreSQL (DB)                   │
-│  테이블: medications, medication_logs                   │
-└─────────────────────────────────────────────────────────┘
+```text
+현재:  웹 / Android 앱 ── Supabase Auth + PostgREST ── Supabase PostgreSQL
+목표:  웹 / Android 앱 ── Kotlin Spring Boot API ───── Supabase PostgreSQL
+                         └─ Supabase Auth 로그인은 유지
 ```
 
----
+로그인 세션은 Supabase Auth가 계속 담당한다. 향후 앱은 Supabase access token을 Spring API에 전달하고, 서버는 Supabase JWKS의 ES256 공개 키로 JWT의 서명·issuer·audience·만료를 검증한다. 이번 기반 단계에서는 인증 확인용 `GET /api/v1/me`만 제공한다.
 
-## 3. 모노레포 패키지 구조
+## 2. 저장소 구조
 
-```
-Pill-Flow2/                         ← pnpm workspace 루트
-├── artifacts/                      ← 배포 대상 애플리케이션
-│   ├── pillflow/                   ← 프론트엔드 (Vercel 배포)
-│   └── api-server/                 ← 백엔드 API 서버 (Supabase 배포)
-│
-├── lib/                            ← 공유 라이브러리 (배포 X)
-│   ├── api-client-react/           ← orval 자동 생성 API 클라이언트
-│   ├── api-spec/                   ← OpenAPI 스펙 (openapi.yaml)
-│   ├── api-zod/                    ← Zod 유효성 검사 스키마
-│   └── db/                         ← Drizzle ORM + DB 스키마
-│
-├── scripts/                        ← 빌드/유틸 스크립트
-├── vercel.json                     ← Vercel 배포 설정
-└── pnpm-workspace.yaml             ← 워크스페이스 & 패키지 카탈로그
+```text
+Pill-Flow2/
+├── artifacts/pillflow/                 # React/Vite 앱 (웹 + Capacitor Android)
+├── backend/                             # 독립 Gradle Kotlin DSL 프로젝트
+│   └── src/main/kotlin/com/pillflow/
+│       ├── common/                      # 공통 에러 응답, 비즈니스 예외
+│       ├── security/                    # Supabase JWT 인증, 현재 사용자 바인딩
+│       ├── me/                          # GET /api/v1/me
+│       ├── medication/                  # Medication 엔티티/리포지토리
+│       └── intake/                      # MedicationLog 엔티티/리포지토리
+├── docs/                                # 아키텍처 및 설계 문서
+├── scripts/                             # 프론트엔드 도구
+└── supabase/functions/                 # 사진 분석 Edge Function
 ```
 
----
+`backend/`는 pnpm workspace 밖에 있다. 프론트엔드 의존성·빌드와 백엔드 Gradle 빌드는 독립적으로 관리한다.
 
-## 4. 각 패키지 상세
+## 3. 프론트엔드와 현재 데이터 흐름
 
-### 4-1. `artifacts/pillflow` — 프론트엔드
+`artifacts/pillflow`는 React 19, Vite, Tailwind CSS, TanStack Query, Supabase JS, Capacitor(Android)를 사용한다. 앱 로그인은 `useAuth`가 Supabase Auth로 수행한다. 약과 복용 기록은 `medicationRepository.ts`가 Supabase에 직접 요청하며, 매퍼가 DB 행을 앱 도메인 모델로 변환한다. 복용일은 현지 날짜 `YYYY-MM-DD`이며 DB의 `medication_logs.taken_on`과 대응한다. `toLocalDateStr`/`getToday`를 사용하고 UTC 기준 `toISOString()`으로 날짜를 계산하지 않는다.
 
-| 항목 | 내용 |
-|------|------|
-| 프레임워크 | React 19 + Vite 7 |
-| UI 라이브러리 | shadcn/ui (Radix UI 기반) |
-| 스타일링 | Tailwind CSS v4 |
-| 라우팅 | wouter |
-| 서버 상태 | TanStack Query v5 |
-| 폼 | react-hook-form + zod |
-| 애니메이션 | framer-motion |
-| 차트 | recharts |
-| 네이티브 앱 | Capacitor v8 (Android) |
-| Supabase | @supabase/supabase-js v2 |
-| 앱 ID | com.pillflow.app |
+앱의 OAuth 리다이렉트와 Capacitor 설정은 유지한다. 사진 분석은 앱에서 Supabase Edge Function을 호출하는 현재 흐름을 유지하며, 본 서버 기반 단계에서 이전하지 않는다.
 
-**필요 환경변수 (.env.local)**
-```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key-here
-```
+## 4. 백엔드 경계
 
-### 4-2. `artifacts/api-server` — 백엔드 API 서버
+`backend/`는 Kotlin + Spring Boot 4, Spring Data JPA, Flyway, Spring Security OAuth2 Resource Server, Actuator로 구성하는 독립 API 서비스다. 도메인 패키지는 기능 단위로 분리한다. 이번 단계에서 약·복용 엔티티와 Spring Data 리포지토리는 마련하지만 서비스 계층, CRUD/통계 엔드포인트, 이미지 분석은 구현 범위가 아니다.
 
-| 항목 | 내용 |
-|------|------|
-| 런타임 | Node.js (ESM) |
-| 프레임워크 | Express.js v5 |
-| 로깅 | pino + pino-http |
-| 빌드 | esbuild (build.mjs) |
+인증되지 않은 접근은 거부하고 `/actuator/health`만 공개한다. `/api/v1/me`는 인증된 JWT의 `sub` UUID를 `{"userId":"<uuid>"}`로 반환한다. 오류는 상태 코드와 함께 `{"code":"ERROR_CODE","message":"한국어 메시지"}` 형식을 사용한다. 서버는 stateless이며 세션과 CSRF를 사용하지 않는다. CORS 허용 출처는 `CORS_ALLOWED_ORIGINS`로 주입한다.
 
-**API 엔드포인트**
-```
-GET /api/healthz  → 서버 상태 확인
-```
+JPA는 `ddl-auto=validate`, `open-in-view=false`로 실행하며 DB DDL의 소유자는 Flyway다. `times`/`days`의 PostgreSQL `text[]` 배열과 `med_type` enum은 Hibernate/PostgreSQL 형식에 맞게 명시적으로 매핑한다.
 
-**필요 환경변수**
-```env
-PORT=3000
-DATABASE_URL=postgresql://...supabase...
-ALLOWED_ORIGIN=https://your-vercel-app.vercel.app
-```
+## 5. 데이터베이스와 마이그레이션 소유권
 
-### 4-3. `lib/db` — 데이터베이스 스키마
+PostgreSQL 17을 사용한다. 목표 스키마는 Flyway SQL(`backend/src/main/resources/db/migration`)로 선언적으로 관리한다. Flyway 실행용 계정과 앱 런타임 계정은 분리한다. Flyway는 `postgres` 자격 증명을 사용하고, 애플리케이션은 DML 권한만 있는 `pillflow_api`를 사용할 수 있도록 구성한다.
 
-| 항목 | 내용 |
-|------|------|
-| ORM | Drizzle ORM |
-| DB | PostgreSQL (Supabase) |
-| 마이그레이션 | drizzle-kit push |
+Flyway 기록은 전용 `flyway` 스키마에 보관한다. 테이블은 PostgREST에 노출되는 `public`에 명시적으로 만든다. `medications`와 `medication_logs`에는 사용자 소유권 RLS가 설정되고, 현재 프론트엔드 직접 접근을 위해 `authenticated`에 필요한 DML 권한이 유지된다. `anon` 권한은 회수한다. 서버 런타임 role은 RLS를 우회하도록 설계하지만 실제 Supabase에서 role 생성과 `BYPASSRLS` 허용 여부는 적용 전에 별도로 확인해야 한다.
 
-**테이블 구조**
+운영 Supabase에는 2026-09-25 기존 데이터를 보존하는 `ALTER` 방식으로 V1 스키마가 이미 적용되었다. 당시 `medications` 약 4행, `medication_logs` 약 8행, 계정 3개였으며 `pillflow_api` role(V2)은 아직 적용되지 않았다. 앱 테이블은 `public`에 있지만 `spring.flyway.schemas=flyway`로 관리되는 이력 스키마는 비어 있으므로, `baseline-on-migrate`에 맡기지 않고 운영 서버 연결 전에 버전 1로 명시적 baseline을 한 번 실행해야 한다. baseline 후 migrate는 V1을 건너뛰고 V2부터 적용한다. 운영 DB에서 V1을 직접 실행하지 않는다.
 
-```
-medications (약 정보)
-├── id            TEXT  PK (UUID)
-├── name          TEXT  약 이름
-├── dosage        TEXT  복용량 (예: "500mg")
-├── dosage_amount INT   복용 개수 (기본값: 1)
-├── remaining_quantity INT 잔여 수량 (기본값: 30)
-├── time          TEXT  복용 시간
-├── category      ENUM  morning / lunch / evening
-├── type          ENUM  pill / capsule / liquid / packet
-├── color         TEXT  앱 표시 색상 (기본값: #6C63FF)
-├── created_at    TIMESTAMP
-└── updated_at    TIMESTAMP
+저장소의 `V1__init.sql`은 빈 DB에서 초기 스키마를 만들며 데이터를 삭제하는 `DROP` 문은 포함하지 않는다. 적용된 운영 스키마는 Testcontainers에서 구 스키마와 ALTER 절차를 재현한 뒤 Flyway baseline(1), migrate(V2), JPA `validate`까지 확인한다. 실제 Supabase 연결이나 변경은 별도 사람 검토 전까지 하지 않는다.
 
-medication_logs (복용 기록)
-├── id            TEXT  PK (UUID)
-├── medication_id TEXT  FK → medications.id (CASCADE DELETE)
-├── taken_at      TIMESTAMP
-└── date          TEXT  YYYY-MM-DD (날짜별 조회용)
-```
+## 6. 개발 및 검증
 
-### 4-4. `lib/api-spec` — OpenAPI 스펙
+프론트엔드:
 
-- `openapi.yaml` 파일로 API 스펙 관리
-- `orval` 로 `lib/api-client-react` 자동 코드 생성
-- 코드 생성: `pnpm --filter @workspace/api-spec codegen`
-
----
-
-## 5. Vercel 배포 설정
-
-```json
-// vercel.json
-{
-  "buildCommand": "pnpm --filter @workspace/pillflow build",
-  "outputDirectory": "artifacts/pillflow/dist/public",
-  "installCommand": "pnpm install",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
-```
-
-- 모든 경로를 `/index.html`로 rewrite → React Router SPA 방식 지원
-- 빌드 시 `@workspace/pillflow` 패키지만 빌드
-
----
-
-## 6. Android 앱 빌드
-
-Capacitor를 사용해 웹 앱을 Android 네이티브 앱으로 래핑합니다.
-
-```typescript
-// capacitor.config.ts
-{
-  appId: "com.pillflow.app",
-  appName: "PillFlow",
-  webDir: "dist/public",
-  server: {
-    androidScheme: "https"  // Supabase Auth 쿠키 호환 필수
-  }
-}
-```
-
-**빌드 명령** (프로젝트 루트에서 실행)
 ```bash
-pnpm build && npx cap sync android
+pnpm install
+pnpm typecheck
+pnpm build
+cd artifacts/pillflow
+../../scripts/node_modules/.bin/tsx --tsconfig tsconfig.json src/lib/notificationSchedule.test.ts
 ```
 
-**Capacitor 플러그인**
-- `@capacitor/local-notifications` — 복약 알림
-- `@capacitor/splash-screen` — 스플래시 화면 (#F5F7FF)
-- `@capacitor/status-bar` — 상태바 스타일 (LIGHT)
+백엔드(로컬 JDK 25 실행, Java/Kotlin 바이트코드 타깃 21):
 
----
+```bash
+cd backend
+cp .env.example .env  # 로컬 전용 값 입력, 커밋하지 않음
+set -a && source .env && set +a  # Spring Boot는 .env 파일을 자동 로드하지 않음
+./gradlew test         # Testcontainers / Docker 필요
+docker build -t pillflow-api:dev .
+```
 
-## 7. 로컬 개발 환경 설정
+백엔드 테스트는 일반 PostgreSQL 17 Testcontainers와 테스트 전용 Supabase 스텁을 사용한다. 운영 Supabase에 접속하지 않으며 JWT 검증, 스키마/권한/RLS, JPA 매핑과 공통 오류 처리를 테스트한다.
 
-### 사전 요건
-- Node.js, pnpm 설치
-- Supabase 프로젝트 생성 (supabase.com)
+## 7. 이후 전환 단계
 
-### 설정 단계
+1. 기반: DB 스키마 정비, 인증 가능한 Spring Boot 골격, 엔티티와 테스트.
+2. 약 및 복용 API 구현 후 앱 저장소를 Spring API로 전환.
+3. 통계 API 이전.
+4. 사진 분석 기능 이전 여부 결정 및 구현.
+5. 배포·CI 구성.
 
-1. **의존성 설치**
-   ```bash
-   pnpm install
-   ```
-
-2. **환경변수 설정**
-   ```bash
-   cp .env.example artifacts/pillflow/.env.local
-   # .env.local 에 Supabase URL과 anon key 입력
-   ```
-
-3. **DB 스키마 적용**
-   ```bash
-   DATABASE_URL=postgresql://... pnpm --filter @workspace/db push
-   ```
-
-4. **개발 서버 실행**
-   ```bash
-   # 프론트엔드
-   pnpm --filter @workspace/pillflow dev
-
-   # 백엔드
-   PORT=3001 DATABASE_URL=... pnpm --filter @workspace/api-server dev
-   ```
-
----
-
-## 8. 기술 스택 요약
-
-| 영역 | 기술 |
-|------|------|
-| 프론트엔드 | React 19, Vite 7, Tailwind CSS v4 |
-| 백엔드 | Express.js v5, Node.js (ESM) |
-| 데이터베이스 | Supabase PostgreSQL + Drizzle ORM |
-| 인증 | Supabase Auth |
-| API 계층 | OpenAPI + orval 코드 생성 |
-| 타입 안전성 | TypeScript, Zod |
-| 모바일 | Capacitor v8 (Android) |
-| 프론트 배포 | Vercel |
-| 백엔드 배포 | Supabase |
-| 패키지 관리 | pnpm workspace (모노레포) |
+이번 단계는 1번만 다룬다. 향후 단계가 실제 DB 적용, 신규 REST API, 앱 전환 또는 운영 인프라 변경을 포함할 수 있으나 현재 구현에서는 이를 앞당기지 않는다.
