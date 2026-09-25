@@ -10,12 +10,12 @@ CREATE TABLE public.medications (
     name text NOT NULL,
     dosage text NOT NULL,
     memo text NOT NULL DEFAULT '',
-    type public.med_type NOT NULL,
+    type public.med_type NOT NULL DEFAULT 'tablet',
     category public.category,
     color text NOT NULL DEFAULT '#6C63FF',
     time text,
     times text[] DEFAULT ARRAY[]::text[],
-    days text[] NOT NULL,
+    days text[] NOT NULL DEFAULT '{mon,tue,wed,thu,fri,sat,sun}'::text[],
     created_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
     updated_at timestamptz NOT NULL DEFAULT pg_catalog.now()
 );

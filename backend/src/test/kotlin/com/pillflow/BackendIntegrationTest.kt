@@ -23,6 +23,7 @@ import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.test.context.ActiveProfiles
@@ -216,6 +217,15 @@ class BackendIntegrationTest @Autowired constructor(
             assertEquals(true, baselineJdbc.queryForObject("SELECT rolbypassrls FROM pg_roles WHERE rolname='pillflow_api'", Boolean::class.java))
             assertEquals(1, baselineJdbc.queryForObject("SELECT count(*) FROM public.medications", Int::class.java))
             assertEquals(1, baselineJdbc.queryForObject("SELECT count(*) FROM public.medication_logs", Int::class.java))
+            // V1로 새로 만든 스키마와 운영(ALTER 적용 후 baseline) 스키마의 컬럼 정의(타입·NULL 허용·기본값)가 같아야 한다.
+            // 컬럼 순서 차이는 허용하므로 ordinal_position이 아니라 컬럼 이름으로 정렬해 비교한다.
+            val columnDefinitionsSql = """
+                SELECT table_name, column_name, udt_name, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name IN ('medications', 'medication_logs')
+                ORDER BY table_name, column_name
+            """.trimIndent()
+            assertEquals(jdbc.queryForList(columnDefinitionsSql), baselineJdbc.queryForList(columnDefinitionsSql))
 
             val entityManagerFactory = LocalContainerEntityManagerFactoryBean().apply {
                 setDataSource(dataSource)
@@ -327,6 +337,17 @@ class BackendIntegrationTest @Autowired constructor(
             .andExpect(status().isForbidden)
             .andExpect(jsonPath("$.code").value("FORBIDDEN"))
             .andExpect(jsonPath("$.message").value("접근 권한이 없습니다."))
+    }
+
+    @Test fun `Spring MVC 표준 예외는 500이 아니라 원래 상태 코드로 반환한다`() {
+        val authorization = "Bearer ${SecurityTestJwt.token()}"
+        mockMvc.perform(get("/api/v1/does-not-exist").header("Authorization", authorization))
+            .andExpect(status().isNotFound)
+            .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+            .andExpect(jsonPath("$.message").isNotEmpty)
+        mockMvc.perform(post("/api/v1/me").header("Authorization", authorization))
+            .andExpect(status().isMethodNotAllowed)
+            .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"))
     }
 
 

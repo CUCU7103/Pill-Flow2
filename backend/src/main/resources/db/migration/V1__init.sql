@@ -1,8 +1,8 @@
 CREATE TYPE public.med_type AS ENUM ('tablet','syrup','powder','ointment','drops','inhaler');
 CREATE TABLE public.medications (
  id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
- name text NOT NULL, dosage text NOT NULL, memo text NOT NULL DEFAULT '', type public.med_type NOT NULL,
- color text NOT NULL DEFAULT '#6C63FF', times text[] NOT NULL, days text[] NOT NULL,
+ name text NOT NULL, dosage text NOT NULL, memo text NOT NULL DEFAULT '', type public.med_type NOT NULL DEFAULT 'tablet',
+ color text NOT NULL DEFAULT '#6C63FF', times text[] NOT NULL, days text[] NOT NULL DEFAULT '{mon,tue,wed,thu,fri,sat,sun}'::text[],
  created_at timestamptz NOT NULL DEFAULT pg_catalog.now(), updated_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
  CONSTRAINT medications_times_check CHECK (
   pg_catalog.cardinality(times) BETWEEN 1 AND 4
