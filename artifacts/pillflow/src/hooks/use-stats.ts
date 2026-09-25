@@ -48,8 +48,8 @@ export function useStats(totalMeds: number, userId?: string) {
         // 주간 통계용 최근 7일 복용 기록 조회
         const { data: logs, error: err } = await supabase
           .from("medication_logs")
-          .select("medication_id, date")
-          .in("date", dates)
+          .select("medication_id, taken_on")
+          .in("taken_on", dates)
           .in("medication_id", medIdFilter);
 
         if (err) throw err;
@@ -58,7 +58,7 @@ export function useStats(totalMeds: number, userId?: string) {
           const d = new Date();
           d.setDate(d.getDate() - i);
           const dateStr = toLocalDateStr(d);
-          const dayLogs = (logs ?? []).filter((l: { date: string }) => l.date === dateStr);
+          const dayLogs = (logs ?? []).filter((l: { taken_on: string }) => l.taken_on === dateStr);
           const uniqueMeds = new Set(dayLogs.map((l: { medication_id: string }) => l.medication_id));
           const rate = Math.round((uniqueMeds.size / total) * 100);
           stats.push({ day: days[d.getDay()], rate });
@@ -74,8 +74,8 @@ export function useStats(totalMeds: number, userId?: string) {
 
         const { data: streakLogs, error: streakErr } = await supabase
           .from("medication_logs")
-          .select("medication_id, date")
-          .gte("date", streakStartDate)
+          .select("medication_id, taken_on")
+          .gte("taken_on", streakStartDate)
           .in("medication_id", medIdFilter);
 
         if (streakErr) throw streakErr;
@@ -86,7 +86,7 @@ export function useStats(totalMeds: number, userId?: string) {
           const d = new Date();
           d.setDate(d.getDate() - i);
           const dateStr = toLocalDateStr(d);
-          const dayLogs = (streakLogs ?? []).filter((l: { date: string }) => l.date === dateStr);
+          const dayLogs = (streakLogs ?? []).filter((l: { taken_on: string }) => l.taken_on === dateStr);
           const uniqueMeds = new Set(dayLogs.map((l: { medication_id: string }) => l.medication_id));
           if (uniqueMeds.size >= total) {
             s++;

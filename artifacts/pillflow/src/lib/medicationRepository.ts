@@ -8,7 +8,7 @@ export async function fetchMedications(userId: string): Promise<Medication[]> {
 
   const [medsRes, logsRes] = await Promise.all([
     supabase.from("medications").select("*").eq("user_id", userId).order("created_at"),
-    supabase.from("medication_logs").select("medication_id").eq("date", today),
+    supabase.from("medication_logs").select("medication_id").eq("taken_on", today),
   ]);
 
   if (medsRes.error) throw medsRes.error;
@@ -78,13 +78,13 @@ export async function toggleMedicationLog(
       .from("medication_logs")
       .delete()
       .eq("medication_id", id)
-      .eq("date", today);
+      .eq("taken_on", today);
     if (delErr) throw delErr;
   } else {
     // 복용 완료 — 오늘 날짜 로그 삽입 (user_id 포함, 이미 존재하면 무시)
     const { error: insErr } = await supabase
       .from("medication_logs")
-      .insert({ medication_id: id, date: today, user_id: userId });
+      .insert({ medication_id: id, taken_on: today, user_id: userId });
     // 중복 키 오류(23505)는 이미 복용 완료된 것이므로 정상 처리
     if (insErr && insErr.code !== "23505") throw insErr;
   }
