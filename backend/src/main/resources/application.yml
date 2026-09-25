@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME:pillflow_api}
+    password: ${DB_PASSWORD}
+  flyway:
+    user: ${FLYWAY_USERNAME:postgres}
+    password: ${FLYWAY_PASSWORD}
+    schemas: flyway
+    default-schema: flyway
+    create-schemas: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${SUPABASE_URL}/auth/v1
+          jwk-set-uri: ${SUPABASE_URL}/auth/v1/.well-known/jwks.json
+          audiences: authenticated
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+management:
+  endpoints.web.exposure.include: health
+  endpoint.health.show-details: never
