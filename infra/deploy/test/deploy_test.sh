@@ -28,11 +28,15 @@ setup() {
   cat > "$FAKE_PARAMS_JSON" <<'JSON'
 {"Parameters":[
  {"Name":"/pillflow/prod/app/DB_URL","Value":"jdbc:postgresql://h:5432/postgres?sslmode=require"},
- {"Name":"/pillflow/prod/app/DB_PASSWORD","Value":"p@ss=wo#rd with space"}
+ {"Name":"/pillflow/prod/app/DB_PASSWORD","Value":"p@ss=wo#rd with space"},
+ {"Name":"/pillflow/prod/app/DOLLAR_VAL","Value":"a$b"},
+ {"Name":"/pillflow/prod/app/HASH_VAL","Value":"x #not-a-comment"},
+ {"Name":"/pillflow/prod/app/QUOTE_START_VAL","Value":"\"leading-quote"}
 ]}
 JSON
   export PATH="$HERE/fakes:$PATH"
   export HEALTH_ATTEMPTS=2 HEALTH_INTERVAL=0
+  unset FAKE_FAIL_APP FAKE_FAIL_CADDY 2>/dev/null || true
 }
 
 assert() { # assert <설명> <명령...>
@@ -56,6 +60,9 @@ assert "종료 코드 0" test "$rc" -eq 0
 assert "current_tag = good1" test "$(cat "$DEPLOY_DIR/current_tag")" = "good1"
 assert ".env에 새 이미지" grep -qx "APP_IMAGE=$REPO:good1" "$DEPLOY_DIR/.env"
 assert "특수문자 보존(작은따옴표로 감싸짐)" grep -qxF "DB_PASSWORD='p@ss=wo#rd with space'" "$DEPLOY_DIR/app.env"
+assert "\$가 든 값이 작은따옴표로 감싸져 그대로 기록" grep -qxF "DOLLAR_VAL='a\$b'" "$DEPLOY_DIR/app.env"
+assert "#이 든 값이 작은따옴표로 감싸져 그대로 기록" grep -qxF "HASH_VAL='x #not-a-comment'" "$DEPLOY_DIR/app.env"
+assert "큰따옴표로 시작하는 값이 작은따옴표로 감싸져 그대로 기록" grep -qxF "QUOTE_START_VAL='\"leading-quote'" "$DEPLOY_DIR/app.env"
 assert "app.env 권한 600" test "$(stat -c %a "$DEPLOY_DIR/app.env" 2>/dev/null || stat -f %Lp "$DEPLOY_DIR/app.env")" = "600"
 assert "caddy 기동" grep -q "docker compose up -d caddy" "$CALLS_FILE"
 assert "app이 caddy보다 먼저 기동(.env 없이 compose 호출 금지)" assert_order "docker compose up -d app" "docker compose up -d caddy" "$CALLS_FILE"
@@ -100,7 +107,51 @@ assert "종료 코드 1" test "$rc" -eq 1
 assert "app.env 미생성" test ! -f "$DEPLOY_DIR/app.env"
 assert "current_tag 미생성" test ! -f "$DEPLOY_DIR/current_tag"
 
-echo "케이스 6: 특수문자 값이 실제 docker compose 런타임에 그대로 전달(가짜 명령 아님)"
+echo "케이스 6: 파라미터 값이 백슬래시로 끝남 → 아무 것도 바꾸지 않고 중단"
+setup
+cat > "$FAKE_PARAMS_JSON" <<'JSON'
+{"Parameters":[{"Name":"/pillflow/prod/app/BAD","Value":"abc\\"}]}
+JSON
+set +e; bash "$SCRIPT" "$REPO" good1 > /dev/null 2>&1; rc=$?; set -e
+assert "종료 코드 1" test "$rc" -eq 1
+assert "app.env 미생성" test ! -f "$DEPLOY_DIR/app.env"
+assert "current_tag 미생성" test ! -f "$DEPLOY_DIR/current_tag"
+assert ".env 미생성" test ! -f "$DEPLOY_DIR/.env"
+
+echo "케이스 7: app 기동 자체가 실패해도(M4) 헬스체크 실패와 같은 롤백 경로로 진입"
+setup
+echo "good1" > "$DEPLOY_DIR/current_tag"
+printf 'MARKER=old-app-env\n' > "$DEPLOY_DIR/app.env"
+chmod 600 "$DEPLOY_DIR/app.env"
+export FAKE_FAIL_APP=1
+set +e; bash "$SCRIPT" "$REPO" good2 > /dev/null 2>&1; rc=$?; set -e
+unset FAKE_FAIL_APP
+assert "종료 코드 1" test "$rc" -eq 1
+assert "current_tag 유지(good1)" test "$(cat "$DEPLOY_DIR/current_tag")" = "good1"
+assert ".env가 이전 이미지로 복구" grep -qx "APP_IMAGE=$REPO:good1" "$DEPLOY_DIR/.env"
+
+echo "케이스 8: caddy 기동 실패 + 이전 태그 있음 → 이전 태그로 롤백"
+setup
+echo "good1" > "$DEPLOY_DIR/current_tag"
+printf 'MARKER=old-app-env\n' > "$DEPLOY_DIR/app.env"
+chmod 600 "$DEPLOY_DIR/app.env"
+export FAKE_FAIL_CADDY=1
+set +e; bash "$SCRIPT" "$REPO" good2 > /dev/null 2>&1; rc=$?; set -e
+unset FAKE_FAIL_CADDY
+assert "종료 코드 1" test "$rc" -eq 1
+assert "current_tag 유지(good1)" test "$(cat "$DEPLOY_DIR/current_tag")" = "good1"
+assert ".env가 이전 이미지로 복구" grep -qx "APP_IMAGE=$REPO:good1" "$DEPLOY_DIR/.env"
+
+echo "케이스 9: caddy 기동 실패 + 최초 배포(이전 태그 없음) → app 중지"
+setup
+export FAKE_FAIL_CADDY=1
+set +e; bash "$SCRIPT" "$REPO" good1 > /dev/null 2>&1; rc=$?; set -e
+unset FAKE_FAIL_CADDY
+assert "종료 코드 1" test "$rc" -eq 1
+assert "current_tag 없음" test ! -f "$DEPLOY_DIR/current_tag"
+assert "app 중지" grep -q "docker compose stop app" "$CALLS_FILE"
+
+echo "케이스 10: 특수문자 값이 실제 docker compose 런타임에 그대로 전달(가짜 명령 아님)"
 if [[ -z "$REAL_DOCKER" ]]; then
   echo "  FAIL - 실제 docker를 찾을 수 없다"; failures=$((failures+1))
 else

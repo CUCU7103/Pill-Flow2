@@ -28,8 +28,10 @@ write_app_env() {
   fi
   local q
   printf -v q '%s' "'"
-  if printf '%s' "$params" | jq -e --arg q "$q" '.Parameters[] | select(.Value | contains($q) or contains("\n"))' > /dev/null; then
-    echo "파라미터 값에 작은따옴표 또는 개행이 있어 안전하게 표현할 수 없다 — 중단한다" >&2
+  # 값이 백슬래시로 끝나면(예: 'abc\') compose dotenv 파서가 닫는 작은따옴표를 이스케이프된 문자로 오인해
+  # 따옴표가 닫히지 않은 것으로 해석하므로 이 경우도 안전하게 표현할 수 없다.
+  if printf '%s' "$params" | jq -e --arg q "$q" '.Parameters[] | select(.Value | contains($q) or contains("\n") or endswith("\\"))' > /dev/null; then
+    echo "파라미터 값에 작은따옴표·개행이 있거나 끝이 백슬래시라 안전하게 표현할 수 없다 — 중단한다" >&2
     return 1
   fi
   printf '%s' "$params" | jq -r --arg q "$q" '.Parameters[] | "\(.Name | split("/") | last)=" + $q + .Value + $q' > app.env.tmp
@@ -76,8 +78,14 @@ app_started=1
 start_app "$REPO_URI:$TAG" || app_started=0
 
 # caddy는 app과 독립적으로 항상 떠 있어야 한다(없을 때만 생성).
-docker compose up -d caddy
-reload_caddy
+# caddy 기동 자체가 실패해도(포트 점유, 이미지 pull 실패, compose.yml 변경으로 재생성 실패 등)
+# 검증되지 않은 새 앱이 그대로 남으면 안 되므로 헬스체크 실패와 같은 경로(롤백/중지)로 보낸다.
+if docker compose up -d caddy; then
+  reload_caddy
+else
+  echo "caddy 기동 실패" >&2
+  app_started=0
+fi
 
 if [[ "$app_started" -eq 1 ]] && wait_healthy; then
   echo "$TAG" > current_tag

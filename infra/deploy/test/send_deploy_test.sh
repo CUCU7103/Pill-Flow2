@@ -32,5 +32,11 @@ set +e; bash "$SCRIPT" i-0abc repo.example/pillflow-api 'sha1; rm -rf /' > /dev/
 assert "종료 코드 1" test "$rc" -eq 1
 assert "send-command 호출 안 함" bash -c "! grep -q 'aws ssm send-command' '$CALLS_FILE'"
 
+echo "케이스 4: REPO_URI에 공백 포함 → SSM 호출 없이 즉시 중단"
+: > "$CALLS_FILE"; export FAKE_SSM_STATUS=Success
+set +e; bash "$SCRIPT" i-0abc 'repo example/pillflow-api' sha1 > /dev/null 2>&1; rc=$?; set -e
+assert "종료 코드 1" test "$rc" -eq 1
+assert "send-command 호출 안 함" bash -c "! grep -q 'aws ssm send-command' '$CALLS_FILE'"
+
 if [[ $failures -gt 0 ]]; then echo "실패 $failures건"; exit 1; fi
 echo "send_deploy_test 전체 통과"

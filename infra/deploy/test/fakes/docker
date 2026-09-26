@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 # 테스트용 가짜 docker — 호출만 기록한다. login은 표준입력을 소비한다.
 # compose 하위 명령은 실제 compose처럼 파일 전체를 보간하므로 .env가 없으면 실패해야 한다(C1 회귀 방지).
+# FAKE_FAIL_APP=1 / FAKE_FAIL_CADDY=1이면 각각 app/caddy 기동 명령만 골라 실패시킨다(M4, caddy 실패 회귀 테스트용).
 echo "docker $*" >> "$CALLS_FILE"
 if [[ "$1" == "login" ]]; then cat > /dev/null; fi
 if [[ "$1" == "compose" ]] && [[ ! -f "$DEPLOY_DIR/.env" ]]; then
   echo "가짜 docker: compose 호출 시점에 .env가 없다" >&2
+  exit 1
+fi
+if [[ "${FAKE_FAIL_APP:-}" == "1" ]] && [[ "$*" == "compose up -d app" ]]; then
+  echo "가짜 docker: FAKE_FAIL_APP=1이라 app 기동 실패" >&2
+  exit 1
+fi
+if [[ "${FAKE_FAIL_CADDY:-}" == "1" ]] && [[ "$*" == "compose up -d caddy" ]]; then
+  echo "가짜 docker: FAKE_FAIL_CADDY=1이라 caddy 기동 실패" >&2
   exit 1
 fi
 exit 0
