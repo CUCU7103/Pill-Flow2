@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# 테스트용 가짜 aws CLI — 호출을 기록하고 필요한 응답만 흉내 낸다.
+echo "aws $*" >> "$CALLS_FILE"
+case "$*" in
+  *"ecr get-login-password"*) echo "fake-token" ;;
+  *"ssm get-parameters-by-path"*) cat "$FAKE_PARAMS_JSON" ;;
+  *"ssm send-command"*) echo "cmd-123" ;;
+  *"ssm get-command-invocation"*"--query Status"*) echo "${FAKE_SSM_STATUS:-Success}" ;;
+  *"ssm get-command-invocation"*) echo "원격 출력" ;;
+esac

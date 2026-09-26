@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# 테스트용 가짜 docker — 호출만 기록한다. login은 표준입력을 소비한다.
+echo "docker $*" >> "$CALLS_FILE"
+if [[ "$1" == "login" ]]; then cat > /dev/null; fi
+exit 0

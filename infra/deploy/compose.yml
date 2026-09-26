@@ -1,0 +1,37 @@
+# EC2 런타임 구성 — app(Spring Boot)과 caddy(HTTPS 종단). APP_IMAGE는 deploy.sh가 .env에 기록한다.
+name: pillflow
+services:
+  app:
+    image: ${APP_IMAGE:?APP_IMAGE가 필요하다}
+    env_file: app.env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70
+    # 외부에는 노출하지 않고 호스트 헬스체크용으로만 루프백에 바인딩한다.
+    ports:
+      - "127.0.0.1:8080:8080"
+    mem_limit: 1200m
+    restart: unless-stopped
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-1
+        awslogs-group: /pillflow/api
+        awslogs-stream: app
+  caddy:
+    image: caddy:2.11.4
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 인증서를 디스크에 보존해 재시작 시 재발급(Let's Encrypt 한도)을 피한다.
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    restart: unless-stopped
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-1
+        awslogs-group: /pillflow/api
+        awslogs-stream: caddy
