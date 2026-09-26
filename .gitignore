@@ -119,3 +119,12 @@ node_modules/
 .taskmaster/
 .serena/
 supabase/.temp/
+
+# Terraform — 상태·변수·백엔드 설정은 공개 저장소에 올리지 않는다
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+backend.hcl
+crash.log
