@@ -1,6 +1,6 @@
 resource "aws_ecr_repository" "api" {
   name = "pillflow-api"
-  # 태그 = git SHA. 같은 태그 덮어쓰기를 금지해 배포 이력을 보존한다.
+  # 태그 = backend/ 디렉터리 트리 해시(커밋 SHA 아님). 같은 태그 덮어쓰기를 금지해 배포 이력을 보존한다.
   image_tag_mutability = "IMMUTABLE"
   image_scanning_configuration {
     scan_on_push = true
