@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from 
 import { useTheme } from "@/hooks/use-theme";
 import { useStats } from "@/hooks/use-stats";
 import { MedIcon } from "@/components/common/MedIcon";
+import { averageRate } from "@/lib/statsUtils";
 import type { Medication } from "@/types";
 
 /** 통계 화면 */
@@ -12,10 +13,9 @@ export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: bo
   const { weeklyData, loading } = useStats(total, userId);
   // Empty seven-day data is returned for zero registered medicines. It is not a
   // meaningful 0% result because there is no denominator yet.
-  const hasStats = Boolean(userId && total > 0 && weeklyData.length > 0);
-  const weekRate = hasStats
-    ? Math.round(weeklyData.reduce((sum, day) => sum + day.rate, 0) / weeklyData.length)
-    : null;
+  const hasStats = Boolean(userId && total > 0 && weeklyData.length > 0 && weeklyData.some((day) => day.rate !== null));
+  const weekRate = hasStats ? averageRate(weeklyData) : null;
+  const chartData = weeklyData.map((entry) => ({ ...entry, rate: entry.rate ?? 0 }));
   const todayLabel = new Date().toLocaleDateString("ko-KR", { weekday: "short" }).replace("요일", "");
 
   return (
@@ -64,7 +64,7 @@ export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: bo
           </div>
           {hasStats ? (
             <ResponsiveContainer width="100%" height={170}>
-              <BarChart data={weeklyData} barSize={24} margin={{ top: 4, right: 0, left: -24, bottom: 0 }}>
+              <BarChart data={chartData} barSize={24} margin={{ top: 4, right: 0, left: -24, bottom: 0 }}>
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: t.subtext, fontSize: 11, fontWeight: 700 }} />
                 <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: t.subtext, fontSize: 10 }} tickFormatter={(value) => `${value}%`} />
                 <Tooltip contentStyle={{ backgroundColor: t.card, border: `1px solid ${t.divider}`, borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }} labelStyle={{ color: t.text, fontWeight: 700 }} formatter={(value: number) => [`${value}%`, "기록 비율"]} cursor={{ fill: t.divider, radius: 8 }} />
