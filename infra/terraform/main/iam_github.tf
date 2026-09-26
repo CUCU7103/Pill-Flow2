@@ -1,7 +1,8 @@
 # GitHub Actions OIDC — 장기 액세스 키 없이 배포 역할을 assume한다.
-resource "aws_iam_openid_connect_provider" "github" {
-  url            = "https://token.actions.githubusercontent.com"
-  client_id_list = ["sts.amazonaws.com"]
+# 공급자는 계정당 URL별로 하나뿐이고 다른 프로젝트(coin-invest)와 공유하므로,
+# 여기서 생성·소유하지 않고 기존 공급자를 참조만 한다(destroy 시 타 프로젝트 영향 방지).
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
 }
 
 data "aws_iam_policy_document" "github_assume" {
@@ -9,7 +10,7 @@ data "aws_iam_policy_document" "github_assume" {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
     }
     condition {
       test     = "StringEquals"
