@@ -32,8 +32,6 @@ export function useDayChange(callback: () => void) {
     }
 
     scheduleMidnight();
-    // userId 변경 시 컴포넌트가 재마운트되므로 stale callback 참조 위험 없음
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => clearTimeout(timerRef.current);
-  }, []);
+  }, [callback]);
 }

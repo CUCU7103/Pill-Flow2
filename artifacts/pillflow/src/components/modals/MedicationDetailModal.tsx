@@ -38,10 +38,12 @@ export function MedicationDetailModal({
   med,
   dark,
   onClose,
+  onDelete,
 }: {
   med: Medication;
   dark: boolean;
   onClose: () => void;
+  onDelete?: () => void;
 }) {
   const t = useTheme(dark);
   const days = DAY_KEYS_MON_FIRST
@@ -50,7 +52,7 @@ export function MedicationDetailModal({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4 sm:p-6"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-3 sm:p-6"
       style={{ backgroundColor: "rgba(0,0,0,0.45)", backdropFilter: "blur(5px)" }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -62,7 +64,7 @@ export function MedicationDetailModal({
       onClick={onClose}
     >
       <motion.div
-        className="w-full max-w-md rounded-[28px] p-5 sm:p-6 shadow-2xl space-y-5"
+        className="w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-[24px] p-5 sm:p-6 shadow-2xl space-y-5"
         style={{ backgroundColor: t.card }}
         initial={{ scale: 0.96, y: 18 }}
         animate={{ scale: 1, y: 0 }}
@@ -72,7 +74,7 @@ export function MedicationDetailModal({
           <div className="flex items-center gap-4 min-w-0">
             <MedIcon type={med.type} color={med.color} />
             <div className="min-w-0">
-              <p className="text-[11px] font-bold tracking-widest uppercase mb-1" style={{ color: med.color }}>
+              <p className="text-xs font-bold mb-1" style={{ color: "var(--pf-accent)" }}>
                 등록 정보
               </p>
               <h3 id="med-detail-title" className="text-xl font-bold truncate" style={{ color: t.text }}>
@@ -96,7 +98,7 @@ export function MedicationDetailModal({
 
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-2xl p-4" style={{ backgroundColor: t.surface }}>
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: t.subtext }}>
+            <p className="text-xs font-bold mb-1" style={{ color: t.subtext }}>
               약 종류
             </p>
             <p className="text-sm font-semibold" style={{ color: t.text }}>
@@ -104,7 +106,7 @@ export function MedicationDetailModal({
             </p>
           </div>
           <div className="rounded-2xl p-4" style={{ backgroundColor: t.surface }}>
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: t.subtext }}>
+            <p className="text-xs font-bold mb-1" style={{ color: t.subtext }}>
               1회 용량
             </p>
             <p className="text-sm font-semibold" style={{ color: t.text }}>
@@ -115,7 +117,7 @@ export function MedicationDetailModal({
 
         <div className="rounded-2xl p-4 space-y-3" style={{ backgroundColor: t.surface }}>
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: t.subtext }}>
+            <p className="text-xs font-bold mb-2" style={{ color: t.subtext }}>
               복용 시간
             </p>
             <div className="flex flex-wrap gap-2">
@@ -124,8 +126,8 @@ export function MedicationDetailModal({
                   key={time}
                   className="text-xs font-bold px-3 py-1.5 rounded-full"
                   style={{
-                    backgroundColor: dark ? "rgba(108,99,255,0.18)" : "rgba(108,99,255,0.10)",
-                    color: "#6C63FF",
+                    backgroundColor: "var(--pf-accent-soft)",
+                    color: "var(--pf-accent)",
                   }}
                 >
                   {formatMedicationTime(time)}
@@ -135,7 +137,7 @@ export function MedicationDetailModal({
           </div>
 
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: t.subtext }}>
+            <p className="text-xs font-bold mb-2" style={{ color: t.subtext }}>
               복용 요일
             </p>
             <div className="flex flex-wrap gap-2">
@@ -145,8 +147,8 @@ export function MedicationDetailModal({
                     key={day}
                     className="text-xs font-bold px-3 py-1.5 rounded-full"
                     style={{
-                      backgroundColor: dark ? "rgba(20,184,166,0.18)" : "rgba(20,184,166,0.10)",
-                      color: "#14B8A6",
+                      backgroundColor: "var(--pf-accent-soft)",
+                      color: "var(--pf-accent)",
                     }}
                   >
                     {day}
@@ -161,7 +163,7 @@ export function MedicationDetailModal({
           </div>
 
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: t.subtext }}>
+            <p className="text-xs font-bold mb-2" style={{ color: t.subtext }}>
               메모
             </p>
             <p className="text-sm leading-6 whitespace-pre-wrap" style={{ color: med.memo ? t.text : t.subtext }}>
@@ -170,7 +172,7 @@ export function MedicationDetailModal({
           </div>
 
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: t.subtext }}>
+            <p className="text-xs font-bold mb-2" style={{ color: t.subtext }}>
               카드 색상
             </p>
             <div className="flex items-center gap-3">
@@ -185,6 +187,17 @@ export function MedicationDetailModal({
             </div>
           </div>
         </div>
+
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="w-full min-h-12 rounded-2xl text-sm font-bold focus-visible:outline-2 focus-visible:outline-[var(--pf-danger)]"
+            style={{ color: "var(--pf-danger)", backgroundColor: t.surface }}
+          >
+            이 약 삭제하기
+          </button>
+        )}
       </motion.div>
     </motion.div>
   );

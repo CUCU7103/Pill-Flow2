@@ -80,9 +80,7 @@ export function AccountModal({
         <div
           className="rounded-2xl p-3 flex items-center gap-3"
           style={{
-            background: dark
-              ? "linear-gradient(135deg,#6C63FF25,#4FACFE25)"
-              : "linear-gradient(135deg,#6C63FF15,#4FACFE15)",
+            background: "var(--pf-accent-soft)",
           }}
         >
           {/* 아바타 */}
@@ -96,7 +94,7 @@ export function AccountModal({
           ) : (
             <div
               className="w-11 h-11 rounded-xl flex items-center justify-center text-white text-lg font-black flex-shrink-0"
-              style={{ background: "linear-gradient(135deg, #6C63FF, #9B8FFF)" }}
+              style={{ background: "var(--pf-action)" }}
             >
               {initial}
             </div>
@@ -183,7 +181,7 @@ export function AccountModal({
             </p>
             <p className="text-[11px]" style={{ color: t.subtext }}>
               탈퇴 요청은{" "}
-              <span style={{ color: "#6C63FF" }}>privacy@pillflow.app</span>
+              <span style={{ color: "var(--pf-accent)" }}>privacy@pillflow.app</span>
               {" "}으로 문의해 주세요.
             </p>
           </div>

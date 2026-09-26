@@ -1,4 +1,4 @@
-import { BarChart3, Award } from "lucide-react";
+import { BarChart3 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from "recharts";
 import { useTheme } from "@/hooks/use-theme";
 import { useStats } from "@/hooks/use-stats";
@@ -8,204 +8,87 @@ import type { Medication } from "@/types";
 /** 통계 화면 */
 export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: boolean; userId?: string }) {
   const t = useTheme(dark);
-  const completed = meds.filter((m) => m.completed).length;
   const total = meds.length;
-
-  // Supabase에서 현재 유저의 실제 통계 데이터 조회
-  const { weeklyData, streak } = useStats(total, userId);
-
-  const weekRate = weeklyData.length > 0
-    ? Math.round(weeklyData.reduce((a, d) => a + d.rate, 0) / weeklyData.length)
-    : 0;
-
-  const achievements = [
-    { icon: "🔥", label: `${streak}일 연속`, desc: "꾸준히 복용 중", color: "#FF6584" },
-    { icon: "⭐", label: `달성률 ${weekRate}%`, desc: "이번 주 평균", color: "#FFD166" },
-    { icon: "💎", label: "30일 달성", desc: "한 달 완주", color: "#6C63FF" },
-  ];
+  const { weeklyData, loading } = useStats(total, userId);
+  // Empty seven-day data is returned for zero registered medicines. It is not a
+  // meaningful 0% result because there is no denominator yet.
+  const hasStats = Boolean(userId && total > 0 && weeklyData.length > 0);
+  const weekRate = hasStats
+    ? Math.round(weeklyData.reduce((sum, day) => sum + day.rate, 0) / weeklyData.length)
+    : null;
+  const todayLabel = new Date().toLocaleDateString("ko-KR", { weekday: "short" }).replace("요일", "");
 
   return (
-    <div className="h-full overflow-y-auto hide-scrollbar" style={{ backgroundColor: t.bg }}>
-      <div className="max-w-md mx-auto px-5 pt-14 pb-32 space-y-5">
-        {/* 헤더 */}
+    <div className="h-full overflow-y-auto hide-scrollbar bg-pf-bg text-pf-text">
+      <div className="max-w-md mx-auto px-5 pt-12 pb-32 space-y-5">
         <header className="mb-2">
-          <p
-            className="text-[10px] font-black uppercase tracking-widest"
-            style={{ color: "#6C63FF" }}
-          >
-            통계
-          </p>
-          <h2 className="text-2xl font-black" style={{ color: t.text }}>
-            복용 현황
-          </h2>
+          <p className="text-xs font-bold tracking-tight" style={{ color: "var(--pf-accent)" }}>통계</p>
+          <h2 className="text-2xl font-black tracking-tight mt-1">복용 현황</h2>
+          <p className="text-sm text-pf-subtext mt-2">복용 기록을 모아 한눈에 확인해요.</p>
         </header>
 
-        {/* 주간 요약 카드 */}
-        <section
-          className="rounded-3xl p-6 relative overflow-hidden"
-          style={{ background: "linear-gradient(135deg,#1A1A2E 0%,#16213E 100%)" }}
-          aria-label="주간 달성률 요약"
-        >
-          <div className="relative z-10">
-            <div className="flex items-center justify-between">
+        {loading ? (
+          <section className="rounded-[28px] p-6 bg-pf-card border border-pf-divider" aria-label="통계 불러오는 중">
+            <div className="h-3 w-20 rounded-full bg-pf-divider animate-pulse" />
+            <div className="h-12 w-28 rounded-xl bg-pf-divider mt-4 animate-pulse" />
+            <div className="h-3 w-40 rounded-full bg-pf-divider mt-4 animate-pulse" />
+          </section>
+        ) : hasStats ? (
+          <section className="rounded-[28px] p-6 bg-pf-card border border-pf-divider" aria-label="최근 7일 기록 비율 요약">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-white/60 text-[10px] font-bold uppercase tracking-widest">
-                  주간 달성률
-                </p>
-                <p className="text-5xl font-black text-white mt-1">{weekRate}%</p>
+                <p className="text-sm font-bold text-pf-subtext">최근 7일 기록 비율</p>
+                <p className="text-5xl font-black tracking-tight mt-2" style={{ color: "var(--pf-accent)" }}>{weekRate}%</p>
+                <p className="text-xs text-pf-subtext mt-2">현재 등록된 약 {total}개 기준</p>
               </div>
-              <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center">
-                <BarChart3 size={26} className="text-white" />
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "var(--pf-accent-soft)", color: "var(--pf-accent)" }}>
+                <BarChart3 size={22} aria-hidden="true" />
               </div>
             </div>
-            <div className="mt-4 h-px bg-white/10" />
-            <div className="mt-4 flex gap-6">
-              {[
-                { label: "오늘 복용", val: `${completed}/${total}` },
-                { label: "주간 평균", val: `${weekRate}%` },
-                { label: "연속 일수", val: `${streak}일` },
-              ].map((s) => (
-                <div key={s.label}>
-                  <p className="text-white font-black text-lg leading-none">{s.val}</p>
-                  <p className="text-white/50 text-[10px] font-bold mt-0.5">{s.label}</p>
-                </div>
-              ))}
+            <p className="mt-5 border-t border-pf-divider pt-4 text-sm leading-6 text-pf-subtext">각 날짜에 기록한 약의 수를 현재 등록된 약 {total}개와 비교한 값이에요.</p>
+          </section>
+        ) : (
+          <section className="rounded-[28px] p-6 bg-pf-card border border-pf-divider" aria-label="통계 안내">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "var(--pf-accent-soft)", color: "var(--pf-accent)" }}>
+              <BarChart3 size={22} aria-hidden="true" />
             </div>
+            <h3 className="text-lg font-black mt-5">복용 기록이 쌓이면 보여드릴게요</h3>
+            <p className="text-sm text-pf-subtext leading-relaxed mt-2">{userId ? "약을 등록하고 복용을 기록하면 최근 7일 현황을 확인할 수 있어요." : "로그인하면 복용 현황을 안전하게 확인할 수 있어요."}</p>
+          </section>
+        )}
+
+        <section className="rounded-[28px] p-5 bg-pf-card border border-pf-divider" aria-label="최근 7일 복용 차트">
+          <div className="flex items-baseline justify-between gap-3 mb-5">
+            <div><h3 className="text-base font-black">주간 기록</h3>{hasStats && <p className="text-xs text-pf-subtext mt-1">최근 7일 · 현재 등록 약 {total}개 기준</p>}</div>
+            {hasStats && <span className="text-xs font-bold text-pf-subtext">오늘 {todayLabel}</span>}
           </div>
+          {hasStats ? (
+            <ResponsiveContainer width="100%" height={170}>
+              <BarChart data={weeklyData} barSize={24} margin={{ top: 4, right: 0, left: -24, bottom: 0 }}>
+                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: t.subtext, fontSize: 11, fontWeight: 700 }} />
+                <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: t.subtext, fontSize: 10 }} tickFormatter={(value) => `${value}%`} />
+                <Tooltip contentStyle={{ backgroundColor: t.card, border: `1px solid ${t.divider}`, borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }} labelStyle={{ color: t.text, fontWeight: 700 }} formatter={(value: number) => [`${value}%`, "기록 비율"]} cursor={{ fill: t.divider, radius: 8 }} />
+                <Bar dataKey="rate" radius={[8, 8, 8, 8]}>
+                  {weeklyData.map((entry, index) => <Cell key={`${entry.day}-${index}`} fill={entry.day === todayLabel ? "var(--pf-accent)" : "var(--pf-accent-soft)"} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <div className="h-[170px] flex items-center justify-center rounded-2xl bg-pf-surface text-sm text-pf-subtext">표시할 주간 기록이 없어요.</div>}
         </section>
 
-        {/* 주간 바 차트 */}
-        <section
-          className="rounded-3xl p-5 shadow-sm"
-          style={{ backgroundColor: t.card }}
-          aria-label="주간 복용 차트"
-        >
-          <p className="text-sm font-bold mb-4" style={{ color: t.text }}>
-            이번 주 복용 현황
-          </p>
-          <ResponsiveContainer width="100%" height={140}>
-            <BarChart data={weeklyData} barSize={28} margin={{ top: 4, right: 0, left: -24, bottom: 0 }}>
-              <XAxis
-                dataKey="day"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: t.subtext, fontSize: 11, fontWeight: 700 }}
-              />
-              <YAxis
-                domain={[0, 100]}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: t.subtext, fontSize: 10 }}
-                tickFormatter={(v) => `${v}%`}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: t.card,
-                  border: "none",
-                  borderRadius: 12,
-                  boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
-                }}
-                labelStyle={{ color: t.text, fontWeight: 700 }}
-                formatter={(v: number) => [`${v}%`, "달성률"]}
-                cursor={{ fill: t.divider, radius: 8 }}
-              />
-              <Bar dataKey="rate" radius={[8, 8, 0, 0]}>
-                {weeklyData.map((entry, i) => (
-                  <Cell
-                    key={i}
-                    fill={
-                      entry.day ===
-                      new Date()
-                        .toLocaleDateString("ko-KR", { weekday: "short" })
-                        .replace("요일", "")
-                        ? "#6C63FF"
-                        : "#6C63FF50"
-                    }
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </section>
-
-        {/* 약별 상태 */}
-        <section
-          className="rounded-3xl p-5 shadow-sm"
-          style={{ backgroundColor: t.card }}
-          aria-label="약별 상태"
-        >
-          <p className="text-sm font-bold mb-4" style={{ color: t.text }}>
-            약별 상태
-          </p>
-          {meds.length === 0 ? (
-            <p className="text-sm text-center py-4" style={{ color: t.subtext }}>
-              등록된 약이 없어요
-            </p>
-          ) : (
-            <div className="space-y-4">
+        <section className="rounded-[28px] p-5 bg-pf-card border border-pf-divider" aria-label="약별 상태">
+          <h3 className="text-base font-black mb-5">약별 상태</h3>
+          <p className="-mt-2 mb-2 text-xs leading-5 text-pf-subtext">완료 기록 1회는 오늘 하루 전체 복용을 뜻해요. 같은 약의 여러 복용 시간은 따로 체크하지 않아요.</p>
+          {meds.length === 0 ? <p className="text-sm text-center py-4 text-pf-subtext">등록된 약이 없어요.</p> : (
+            <div className="space-y-1">
               {meds.map((med) => (
-                <div key={med.id} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <MedIcon type={med.type} color={med.color} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold" style={{ color: t.text }}>
-                        {med.name}
-                      </p>
-                      {med.memo ? (
-                        <p
-                          className="text-[10px] truncate max-w-[160px]"
-                          style={{ color: t.subtext }}
-                        >
-                          {med.memo}
-                        </p>
-                      ) : (
-                        <p className="text-[10px]" style={{ color: t.subtext }}>
-                          {med.dosage}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <span
-                    className="text-sm font-black flex-shrink-0"
-                    style={{ color: med.completed ? "#06D6A0" : t.subtext }}
-                  >
-                    {med.completed ? "복용 완료" : "복용 전"}
-                  </span>
+                <div key={med.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="flex items-center gap-3 min-w-0"><MedIcon type={med.type} color={med.color} /><div className="min-w-0"><p className="text-sm font-bold truncate">{med.name}</p><p className="text-xs truncate text-pf-subtext">{med.memo || med.dosage}</p></div></div>
+                  <span className="text-xs font-bold flex-shrink-0" style={{ color: med.completed ? "var(--pf-success)" : t.subtext }}>{med.completed ? "오늘 하루 기록됨" : "오늘 기록 없음"}</span>
                 </div>
               ))}
             </div>
           )}
-        </section>
-
-        {/* 달성 뱃지 */}
-        <section
-          className="rounded-3xl p-5 shadow-sm"
-          style={{ backgroundColor: t.card }}
-          aria-label="달성 뱃지"
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <Award size={18} style={{ color: "#6C63FF" }} />
-            <p className="text-sm font-bold" style={{ color: t.text }}>
-              달성 뱃지
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            {achievements.map((a) => (
-              <div
-                key={a.label}
-                className="rounded-2xl p-4 text-center"
-                style={{ backgroundColor: a.color + "15" }}
-              >
-                <span className="text-3xl">{a.icon}</span>
-                <p className="text-xs font-black mt-2" style={{ color: a.color }}>
-                  {a.label}
-                </p>
-                <p className="text-[10px] mt-0.5" style={{ color: t.subtext }}>
-                  {a.desc}
-                </p>
-              </div>
-            ))}
-          </div>
         </section>
       </div>
     </div>

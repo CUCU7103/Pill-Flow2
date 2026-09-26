@@ -75,35 +75,27 @@ export function useMedications(userId?: string | null) {
     async (id: string) => {
       if (!userId) throw new Error("로그인이 필요합니다.");
       if (pendingIds.current.has(id)) return;
+      const med = meds.find((m) => m.id === id);
+      if (!med) return;
+      const wasCompleted = med.completed;
       pendingIds.current.add(id);
-
-      let wasCompleted: boolean | null = null;
-
-      setMeds((prev) => {
-        const med = prev.find((m) => m.id === id);
-        if (!med) return prev;
-        wasCompleted = med.completed;
-        return prev.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m));
-      });
-
-      if (wasCompleted === null) {
-        pendingIds.current.delete(id);
-        return;
-      }
+      setMeds((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, completed: !wasCompleted } : m)),
+      );
 
       try {
         await toggleMedicationLog(id, userId, wasCompleted);
       } catch (err) {
         // 실패 시 낙관적 업데이트 롤백
         setMeds((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, completed: wasCompleted as boolean } : m)),
+          prev.map((m) => (m.id === id ? { ...m, completed: wasCompleted } : m)),
         );
         throw err;
       } finally {
         pendingIds.current.delete(id);
       }
     },
-    [userId],
+    [meds, userId],
   );
 
   // 현재 유저의 모든 데이터 초기화

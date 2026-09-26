@@ -36,7 +36,7 @@ export function AboutModal({
         <div className="flex flex-col items-center gap-3 text-center">
           <div
             className="w-20 h-20 rounded-3xl flex items-center justify-center text-white text-3xl font-black shadow-lg"
-            style={{ background: "linear-gradient(135deg, #6C63FF, #4FACFE)" }}
+            style={{ background: "var(--pf-action)" }}
           >
             💊
           </div>
@@ -65,7 +65,7 @@ export function AboutModal({
           </div>
           <div className="flex justify-between items-center px-4 py-3">
             <span className="text-sm font-semibold" style={{ color: t.subtext }}>문의</span>
-            <span className="text-xs font-bold" style={{ color: "#6C63FF" }}>
+            <span className="text-xs font-bold" style={{ color: "var(--pf-accent)" }}>
               privacy@pillflow.app
             </span>
           </div>

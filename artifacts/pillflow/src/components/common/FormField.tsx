@@ -13,9 +13,9 @@ export function FormField({
   accentColor: string;
 }) {
   return (
-    <div className="rounded-2xl p-5 shadow-sm" style={{ backgroundColor: cardBg }}>
+    <div className="rounded-2xl border border-pf-divider p-5" style={{ backgroundColor: cardBg }}>
       <p
-        className="text-[10px] font-black uppercase tracking-widest mb-4"
+        className="text-sm font-bold mb-4"
         style={{ color: accentColor }}
       >
         {label}

@@ -35,10 +35,10 @@ export function NotificationPopover({
       <Popover.Trigger asChild>
         <button
           aria-label="알림 설정"
-          className="w-10 h-10 rounded-full shadow-sm flex items-center justify-center min-w-[44px] min-h-[44px]"
+          className="w-10 h-10 rounded-full flex items-center justify-center min-w-[44px] min-h-[44px] focus-visible:outline-2 focus-visible:outline-[var(--pf-accent)]"
           style={{ backgroundColor: t.card }}
         >
-          <Bell size={17} style={{ color: "#6C63FF" }} />
+          <Bell size={18} style={{ color: "var(--pf-accent)" }} />
         </button>
       </Popover.Trigger>
 
@@ -48,12 +48,12 @@ export function NotificationPopover({
           side="bottom"
           align="end"
           sideOffset={8}
-          className="z-50 w-64 rounded-2xl shadow-xl p-4"
+          className="z-50 w-64 rounded-2xl border border-pf-divider shadow-xl p-4"
           style={{ backgroundColor: t.card }}
         >
           {/* 헤더 */}
           <p
-            className="text-xs font-black uppercase tracking-widest mb-3"
+            className="text-sm font-bold mb-3"
             style={{ color: t.subtext }}
           >
             알림
@@ -67,7 +67,7 @@ export function NotificationPopover({
             <span className="text-sm font-bold" style={{ color: t.text }}>
               전체 알림
             </span>
-            <Toggle on={notifEnabled} onToggle={onToggleNotif} />
+            <Toggle on={notifEnabled} onToggle={onToggleNotif} ariaLabel="전체 복용 알림" />
           </div>
 
           {/* 시간대별 토글 */}
@@ -81,7 +81,7 @@ export function NotificationPopover({
                   >
                     {label}
                   </p>
-                  <p className="text-[10px]" style={{ color: t.subtext }}>
+                  <p className="text-xs" style={{ color: t.subtext }}>
                     {time}
                   </p>
                 </div>
@@ -90,6 +90,7 @@ export function NotificationPopover({
                   on={categories[key]}
                   onToggle={() => onToggleCategory(key)}
                   disabled={!notifEnabled}
+                  ariaLabel={`${label} 복용 알림`}
                 />
               </div>
             ))}

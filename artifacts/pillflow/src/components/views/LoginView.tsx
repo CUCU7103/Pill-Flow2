@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pill } from "lucide-react";
+import { Pill, BellRing, ChartNoAxesColumn } from "lucide-react";
 
 /** Google 공식 G 아이콘 */
 function GoogleIcon() {
@@ -41,59 +41,43 @@ export function LoginView({ onSignIn }: { onSignIn: () => Promise<void> }) {
   };
 
   return (
-    <div className="h-full w-full flex flex-col items-center justify-center bg-pf-bg px-8">
-      {/* 앱 로고 */}
-      <div className="flex flex-col items-center gap-5 mb-12">
-        <div
-          className="w-24 h-24 rounded-[2rem] flex items-center justify-center shadow-lg"
-          style={{ background: "linear-gradient(135deg, #6C63FF, #4FACFE)" }}
-        >
-          <Pill size={44} className="text-white" strokeWidth={2.5} />
+    <main className="min-h-full w-full bg-pf-bg px-5 py-10 flex items-center justify-center">
+      <div className="w-full max-w-sm">
+        <div className="mb-10 flex h-15 w-15 items-center justify-center rounded-[20px] bg-[var(--pf-action)] text-white">
+          <Pill size={29} strokeWidth={2.3} aria-hidden="true" />
         </div>
-        <div className="text-center">
-          <h1 className="text-[2rem] font-extrabold tracking-tight text-pf-text">
-            PillFlow
-          </h1>
-          <p className="text-sm font-medium mt-2 text-pf-subtext">
-            건강한 복약 습관을 만들어요
-          </p>
-        </div>
-      </div>
+        <p className="text-sm font-bold text-[var(--pf-accent)]">PillFlow</p>
+        <h1 className="mt-3 text-[30px] leading-[1.3] tracking-tight font-extrabold text-pf-text">
+          오늘 복용할 약을<br />한눈에 확인하세요
+        </h1>
+        <p className="mt-3 text-base leading-6 text-pf-subtext">
+          복용 시간을 챙기고, 완료한 기록을 쉽게 남길 수 있어요.
+        </p>
 
-      {/* 주요 기능 안내 */}
-      <div className="w-full space-y-3 mb-10">
-        {[
-          { emoji: "💊", text: "복약 시간 알림 및 기록 관리" },
-          { emoji: "📊", text: "주간 복용 통계 한눈에 확인" },
-          { emoji: "👨‍👩‍👧", text: "가족 모두의 약 정보 한 곳에" },
-        ].map(({ emoji, text }) => (
-          <div
-            key={text}
-            className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-pf-card"
-          >
-            <span className="text-xl">{emoji}</span>
-            <span className="text-sm font-semibold text-pf-text">{text}</span>
+        <div className="mt-9 space-y-3" aria-label="주요 기능">
+          <div className="flex items-center gap-4 rounded-[20px] border border-pf-divider bg-pf-card p-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--pf-accent-soft)] text-[var(--pf-accent)]"><BellRing size={21} aria-hidden="true" /></span>
+            <div><p className="font-bold text-pf-text">복용 시간 알림</p><p className="mt-1 text-sm text-pf-subtext">설정한 시간에 알림을 받아요</p></div>
           </div>
-        ))}
+          <div className="flex items-center gap-4 rounded-[20px] border border-pf-divider bg-pf-card p-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--pf-accent-soft)] text-[var(--pf-accent)]"><ChartNoAxesColumn size={21} aria-hidden="true" /></span>
+            <div><p className="font-bold text-pf-text">복용 기록 확인</p><p className="mt-1 text-sm text-pf-subtext">최근 7일의 기록을 살펴봐요</p></div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleSignIn}
+          disabled={loading}
+          className="mt-10 flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl border border-pf-divider bg-pf-card text-base font-bold text-pf-text transition-colors hover:bg-pf-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pf-accent)] disabled:opacity-50"
+        >
+          {loading ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-pf-divider border-t-[var(--pf-accent)]" aria-hidden="true" /> : <GoogleIcon />}
+          {loading ? "로그인 중..." : "Google로 시작하기"}
+        </button>
+        <p className="mt-4 text-center text-sm leading-5 text-pf-subtext">
+          로그인하면 내 약 정보를 기기 간에 동기화할 수 있어요.
+        </p>
       </div>
-
-      {/* 구글 로그인 버튼 */}
-      <button
-        onClick={handleSignIn}
-        disabled={loading}
-        className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-bold text-sm bg-pf-card border border-pf-divider shadow-sm active:opacity-70 disabled:opacity-50 min-h-[56px] transition-opacity text-pf-text"
-      >
-        {loading ? (
-          <div className="w-5 h-5 border-2 border-pf-divider border-t-[#6C63FF] rounded-full animate-spin" />
-        ) : (
-          <GoogleIcon />
-        )}
-        {loading ? "로그인 중..." : "Google로 시작하기"}
-      </button>
-
-      <p className="text-xs mt-5 text-center text-pf-subtext leading-relaxed">
-        로그인하면 모든 기기에서 약 정보를 동기화할 수 있어요
-      </p>
-    </div>
+    </main>
   );
 }

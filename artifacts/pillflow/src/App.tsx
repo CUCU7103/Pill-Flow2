@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { usePersisted } from "@/hooks/use-persisted";
 import { useDarkMode } from "@/hooks/use-theme";
@@ -22,14 +22,15 @@ function LoadingSpinner() {
   return (
     <div className="h-full w-full flex items-center justify-center bg-pf-bg">
       <div className="text-center">
-        <div className="w-12 h-12 border-4 border-[#6C63FF] border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="mt-4 text-pf-subtext font-medium">로딩 중...</p>
+        <div className="w-10 h-10 border-4 border-[var(--pf-accent)] border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="mt-4 text-pf-subtext font-medium">약 정보를 불러오고 있어요</p>
       </div>
     </div>
   );
 }
 
 export default function App() {
+  const reduceMotion = useReducedMotion();
   const [view, setView] = useState<View>("today");
   const [dark, setDark] = usePersisted<boolean>("pillflow_dark", false);
   const [notif, setNotif] = usePersisted<boolean>("pillflow_notif", true);
@@ -47,7 +48,7 @@ export default function App() {
 
   // Supabase 기반 약 데이터 (로그인 후에만 사용)
   // user.id를 전달해 RLS insert 시 user_id가 포함되도록 함
-  const { meds, loading: medsLoading, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user?.id);
+  const { meds, loading: medsLoading, error: medsError, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user?.id);
 
   // 복약 알림 스케줄링 (네이티브 앱에서만 동작)
   useNotifications(meds, notif, notifCategories);
@@ -118,6 +119,18 @@ export default function App() {
   // 약 데이터 로딩 중
   if (medsLoading) return <LoadingSpinner />;
 
+  if (medsError && meds.length === 0) {
+    return (
+      <main className="min-h-full bg-pf-bg flex items-center justify-center px-6">
+        <div className="w-full max-w-sm rounded-3xl bg-pf-card border border-pf-divider p-6 text-center">
+          <h1 className="text-xl font-bold text-pf-text">약 정보를 불러오지 못했어요</h1>
+          <p className="mt-2 text-sm text-pf-subtext">연결을 확인한 뒤 다시 시도해 주세요.</p>
+          <button type="button" onClick={() => void refetchMeds()} className="mt-6 min-h-12 w-full rounded-2xl bg-[var(--pf-action)] text-white font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pf-accent)]">다시 시도</button>
+        </div>
+      </main>
+    );
+  }
+
   // 오늘 요일 키 계산 (DAY_KEYS_SUN_FIRST는 Date.getDay() 기준 일=0)
   const todayKey = DAY_KEYS_SUN_FIRST[new Date().getDay()];
 
@@ -127,7 +140,7 @@ export default function App() {
   return (
     <div
       className="h-full w-full flex flex-col"
-      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+      style={{ backgroundColor: "var(--pf-bg)" }}
     >
       {/* 메인 컨텐츠 */}
       <main className="flex-1 overflow-hidden">
@@ -136,13 +149,15 @@ export default function App() {
             <motion.div
               key="today"
               className="h-full"
-              initial={{ opacity: 0, x: -20 }}
+              initial={reduceMotion ? false : { opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: reduceMotion ? 0 : 0.2 }}
             >
               <TodayView
                 meds={todayMeds}
+                allMeds={meds}
+                hasAnyMeds={meds.length > 0}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
                 onAddClick={() => setView("add")}
@@ -159,10 +174,10 @@ export default function App() {
             <motion.div
               key="add"
               className="h-full"
-              initial={{ opacity: 0, x: 20 }}
+              initial={reduceMotion ? false : { opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: reduceMotion ? 0 : 0.2 }}
             >
               <AddView onBack={() => setView("today")} onSave={handleAdd} dark={dark} />
             </motion.div>
@@ -171,10 +186,10 @@ export default function App() {
             <motion.div
               key="stats"
               className="h-full"
-              initial={{ opacity: 0, x: 20 }}
+              initial={reduceMotion ? false : { opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: reduceMotion ? 0 : 0.2 }}
             >
               <StatsView meds={meds} dark={dark} userId={user?.id} />
             </motion.div>

@@ -37,7 +37,7 @@ function ProfileAvatar({ user }: { user: SupabaseUser }) {
   return (
     <div
       className="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-xl font-black"
-      style={{ background: "linear-gradient(135deg, #6C63FF, #9B8FFF)" }}
+      style={{ backgroundColor: "var(--pf-accent)" }}
     >
       {initial}
     </div>
@@ -97,7 +97,7 @@ export function SettingsModal({
             onClick={onClose}
           />
           <Drawer.Content
-            className="fixed inset-x-0 bottom-0 z-50 flex h-auto max-h-[90dvh] flex-col overflow-hidden rounded-t-[2rem] outline-none"
+            className="fixed inset-x-0 bottom-0 z-50 flex h-auto max-h-[90dvh] flex-col overflow-hidden rounded-t-[24px] outline-none"
             style={{ backgroundColor: t.card }}
           >
             <Drawer.Handle
@@ -125,14 +125,7 @@ export function SettingsModal({
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 pb-12">
               {/* 프로필 - 구글 계정 정보 표시 */}
-              <div
-                className="rounded-2xl p-4 flex items-center gap-4"
-                style={{
-                  background: dark
-                    ? "linear-gradient(135deg,#6C63FF25,#4FACFE25)"
-                    : "linear-gradient(135deg,#6C63FF15,#4FACFE15)",
-                }}
-              >
+              <div className="rounded-2xl p-4 flex items-center gap-4 bg-[var(--pf-accent-soft)]">
                 <ProfileAvatar user={user} />
                 <div className="flex-1 min-w-0">
                   <p className="font-extrabold truncate" style={{ color: t.text }}>
@@ -147,7 +140,7 @@ export function SettingsModal({
               {/* 앱 설정 */}
               <div>
                 <p
-                  className="text-[10px] font-black uppercase tracking-widest mb-3 px-1"
+                  className="text-sm font-bold mb-3 px-1"
                   style={{ color: t.subtext }}
                 >
                   앱 설정
@@ -158,32 +151,32 @@ export function SettingsModal({
                 >
                   {/* 알림 */}
                   <div className="flex items-center gap-4 px-4 py-4">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#6C63FF]/15">
-                      <Bell size={18} style={{ color: "#6C63FF" }} />
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[var(--pf-accent-soft)]">
+                      <Bell size={18} style={{ color: "var(--pf-accent)" }} />
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-bold" style={{ color: t.text }}>복용 알림</p>
-                      <p className="text-[11px] font-medium" style={{ color: t.subtext }}>
+                      <p className="text-xs font-medium" style={{ color: t.subtext }}>
                         매일 알림을 받습니다
                       </p>
                     </div>
-                    <Toggle on={notif} onToggle={onToggleNotif} />
+                    <Toggle on={notif} onToggle={onToggleNotif} ariaLabel="복용 알림" />
                   </div>
                   {/* 다크 모드 */}
                   <div className="flex items-center gap-4 px-4 py-4">
                     <div
                       className="w-9 h-9 rounded-xl flex items-center justify-center"
-                      style={{ backgroundColor: dark ? "#374151" : "#1A1A2E20" }}
+                      style={{ backgroundColor: t.surface }}
                     >
-                      <Moon size={18} style={{ color: dark ? "#9B8FFF" : "#374151" }} />
+                      <Moon size={18} style={{ color: t.subtext }} />
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-bold" style={{ color: t.text }}>다크 모드</p>
-                      <p className="text-[11px] font-medium" style={{ color: t.subtext }}>
+                      <p className="text-xs font-medium" style={{ color: t.subtext }}>
                         어두운 테마 사용
                       </p>
                     </div>
-                    <Toggle on={dark} onToggle={onToggleDark} />
+                    <Toggle on={dark} onToggle={onToggleDark} ariaLabel="다크 모드" />
                   </div>
                 </div>
               </div>
@@ -191,7 +184,7 @@ export function SettingsModal({
               {/* 정보 */}
               <div>
                 <p
-                  className="text-[10px] font-black uppercase tracking-widest mb-3 px-1"
+                  className="text-sm font-bold mb-3 px-1"
                   style={{ color: t.subtext }}
                 >
                   정보
@@ -205,12 +198,12 @@ export function SettingsModal({
                     onClick={() => setAccountOpen(true)}
                     className="w-full flex items-center gap-4 px-4 py-4 text-left active:opacity-70 min-h-[48px]"
                   >
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#06D6A0]/20">
-                      <User size={18} style={{ color: "#06D6A0" }} />
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[var(--pf-accent-soft)]">
+                      <User size={18} style={{ color: "var(--pf-accent)" }} />
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-bold" style={{ color: t.text }}>계정 관리</p>
-                      <p className="text-[11px] font-medium" style={{ color: t.subtext }}>
+                      <p className="text-xs font-medium" style={{ color: t.subtext }}>
                         데이터 초기화 및 탈퇴
                       </p>
                     </div>
@@ -222,8 +215,8 @@ export function SettingsModal({
                     onClick={() => setPrivacyOpen(true)}
                     className="w-full flex items-center gap-4 px-4 py-4 text-left active:opacity-70 min-h-[48px]"
                   >
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#4FACFE]/20">
-                      <Shield size={18} style={{ color: "#4FACFE" }} />
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[var(--pf-accent-soft)]">
+                      <Shield size={18} style={{ color: "var(--pf-accent)" }} />
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-bold" style={{ color: t.text }}>개인정보 처리방침</p>
@@ -236,12 +229,12 @@ export function SettingsModal({
                     onClick={() => setAboutOpen(true)}
                     className="w-full flex items-center gap-4 px-4 py-4 text-left active:opacity-70 min-h-[48px]"
                   >
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#9B8FFF]/20">
-                      <Info size={18} style={{ color: "#9B8FFF" }} />
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[var(--pf-accent-soft)]">
+                      <Info size={18} style={{ color: "var(--pf-accent)" }} />
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-bold" style={{ color: t.text }}>버전 정보</p>
-                      <p className="text-[11px] font-medium" style={{ color: t.subtext }}>
+                      <p className="text-xs font-medium" style={{ color: t.subtext }}>
                         v{APP_VERSION}
                       </p>
                     </div>
@@ -254,10 +247,7 @@ export function SettingsModal({
               <button
                 onClick={onSignOut}
                 className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-bold text-sm min-h-[48px] active:opacity-70 transition-opacity"
-                style={{
-                  backgroundColor: dark ? "#3B1A1A" : "#FEF2F2",
-                  color: "#F87171",
-                }}
+                style={{ backgroundColor: t.surface, color: "var(--pf-danger)" }}
               >
                 <LogOut size={18} />
                 로그아웃

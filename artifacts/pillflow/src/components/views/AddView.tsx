@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Pill,
   Camera,
@@ -35,9 +35,6 @@ type TimeSlot = {
   label: string;
   defaultValue: string;
   icon: typeof Sunrise;
-  accent: string;
-  accentSoft: string;
-  glow: string;
   /** TimePicker 허용 최소 시(0~23) */
   minHour: number;
   /** TimePicker 허용 최대 시(0~23) */
@@ -50,9 +47,6 @@ const TIME_SLOTS: TimeSlot[] = [
     label: "아침",
     defaultValue: "08:00",
     icon: Sunrise,
-    accent: "#F97316",
-    accentSoft: "#FFF1E8",
-    glow: "rgba(249,115,22,0.22)",
     minHour: 5,
     maxHour: 10,
   },
@@ -61,9 +55,6 @@ const TIME_SLOTS: TimeSlot[] = [
     label: "점심",
     defaultValue: "13:00",
     icon: SunMedium,
-    accent: "#EAB308",
-    accentSoft: "#FFF9DB",
-    glow: "rgba(234,179,8,0.20)",
     minHour: 11,
     maxHour: 15,
   },
@@ -72,9 +63,6 @@ const TIME_SLOTS: TimeSlot[] = [
     label: "저녁",
     defaultValue: "19:00",
     icon: MoonStar,
-    accent: "#6C63FF",
-    accentSoft: "#F0EEFF",
-    glow: "rgba(108,99,255,0.22)",
     minHour: 16,
     maxHour: 23,
   },
@@ -83,9 +71,6 @@ const TIME_SLOTS: TimeSlot[] = [
     label: "기타",
     defaultValue: "",
     icon: Clock,
-    accent: "#14B8A6",
-    accentSoft: "#F0FDFA",
-    glow: "rgba(20,184,166,0.20)",
     minHour: 0,
     maxHour: 23,
   },
@@ -133,7 +118,9 @@ export function AddView({
 
   const [saving, setSaving] = useState(false);
   const t = useTheme(dark);
+  const reduceMotion = useReducedMotion();
   const doseUnit = getDoseUnit(type);
+  const validDosage = dosage.trim() !== "" && Number.isFinite(Number(dosage)) && Number(dosage) > 0;
 
   // 사진 분석 훅 — 결과가 오면 비어있는 필드만 채운다
   const photo = usePhotoAnalyzer({
@@ -206,6 +193,10 @@ export function AddView({
 
   const save = useCallback(async () => {
     if (!name.trim() || saving) return;
+    if (!validDosage) {
+      toast.error("1회 용량을 0보다 큰 숫자로 입력해주세요.");
+      return;
+    }
     if (times.length === 0) {
       toast.error("복용 시간을 최소 1개 선택해주세요.");
       return;
@@ -232,14 +223,14 @@ export function AddView({
     } finally {
       setSaving(false);
     }
-  }, [name, saving, times, dosage, doseUnit, memo, type, color, days, onSave, onBack]);
+  }, [name, saving, times, dosage, validDosage, doseUnit, memo, type, color, days, onSave, onBack]);
 
-  const canGoStep2 = name.trim().length > 0;
+  const canGoStep2 = name.trim().length > 0 && validDosage;
   const canGoStep3 = times.length > 0 && days.length > 0;
 
   return (
     <div className="h-full overflow-y-auto hide-scrollbar" style={{ backgroundColor: t.bg }}>
-      <div className="max-w-md mx-auto px-5 pt-14 pb-32 space-y-4">
+      <div className="max-w-md mx-auto px-5 pt-8 sm:pt-10 pb-32 space-y-5">
 
         {/* 헤더 */}
         <header className="flex items-center gap-4 mb-2">
@@ -251,8 +242,11 @@ export function AddView({
           >
             <ChevronLeft size={22} style={{ color: t.text }} />
           </button>
-          <div className="flex-1">
-            <h2 className="text-2xl font-black" style={{ color: t.text }}>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold tracking-wide mb-1" style={{ color: "var(--pf-accent)" }}>
+              약 등록 · {step} / 3
+            </p>
+            <h2 className="text-2xl font-black tracking-tight" style={{ color: t.text }}>
               새 약 추가
             </h2>
             <p className="text-xs font-medium" style={{ color: t.subtext }}>
@@ -272,19 +266,19 @@ export function AddView({
               className="w-11 h-11 rounded-full shadow-sm flex items-center justify-center active:scale-90 transition-transform min-w-[44px] min-h-[44px] disabled:opacity-50"
               style={{ backgroundColor: t.card }}
             >
-              <Camera size={22} style={{ color: "#6C63FF" }} />
+              <Camera size={22} style={{ color: "var(--pf-accent)" }} />
             </button>
           )}
         </header>
 
         {/* 단계 인디케이터 */}
-        <div className="flex gap-2 mb-2">
+        <div className="flex gap-2 mb-2" role="progressbar" aria-label={`약 등록 ${step}단계`} aria-valuemin={1} aria-valuemax={3} aria-valuenow={step}>
           {([1, 2, 3] as const).map((s) => (
             <div
               key={s}
               className="h-1.5 flex-1 rounded-full transition-all duration-300"
               style={{
-                backgroundColor: s <= step ? "#6C63FF" : t.divider,
+                backgroundColor: s <= step ? "var(--pf-accent)" : t.divider,
               }}
             />
           ))}
@@ -302,49 +296,61 @@ export function AddView({
           {step === 1 && (
             <motion.div
               key="step1"
-              initial={{ opacity: 0, x: 30 }}
+              initial={reduceMotion ? false : { opacity: 0, x: 30 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-4"
+              exit={reduceMotion ? undefined : { opacity: 0, x: -30 }}
+              transition={{ duration: reduceMotion ? 0 : 0.2 }}
+              className="space-y-5"
+              aria-labelledby="add-step-title"
             >
+              <div>
+                <h3 id="add-step-title" className="text-xl font-black tracking-tight" style={{ color: t.text }}>어떤 약을 복용하나요?</h3>
+                <p className="text-sm mt-1" style={{ color: t.subtext }}>약 이름과 기본 정보를 알려주세요.</p>
+              </div>
               {/* 약 이름 */}
-              <FormField label="약 이름" cardBg={t.card} accentColor="#6C63FF">
+              <FormField label="약 이름" cardBg={t.card} accentColor="var(--pf-accent)">
                 <div
                   className="flex items-center gap-3 rounded-xl px-4 py-3 border-2"
                   style={{
-                    borderColor: name ? "#6C63FF" : t.divider,
+                    borderColor: name ? "var(--pf-accent)" : t.divider,
                     backgroundColor: t.surface,
                   }}
                 >
-                  <Pill size={18} style={{ color: "#6C63FF" }} />
+                  <Pill size={18} style={{ color: "var(--pf-accent)" }} />
                   <input
                     ref={nameInputRef}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && canGoStep2) {
+                        e.preventDefault();
+                        setStep(2);
+                      }
+                    }}
                     placeholder="예: 마그네슘, 종합비타민..."
                     aria-label="약 이름"
                     className="flex-1 bg-transparent outline-none font-bold text-base"
                     style={{ color: t.text }}
+                    autoComplete="off"
                   />
                 </div>
               </FormField>
 
               {/* 약 유형 */}
-              <FormField label="약 유형" cardBg={t.card} accentColor="#6C63FF">
+              <FormField label="약 유형" cardBg={t.card} accentColor="var(--pf-accent)">
                 <div
                   className="grid grid-cols-2 gap-3"
                   role="radiogroup"
                   aria-label="약 유형 선택"
                 >
                   {[
-                    { id: "tablet"   as const, label: "알약",   Icon: Pill,     bg: "#EDE9FE", color: "#7C3AED" },
-                    { id: "syrup"    as const, label: "시럽",   Icon: Droplets, bg: "#DBEAFE", color: "#2563EB" },
-                    { id: "powder"   as const, label: "포장약", Icon: Package,  bg: "#FEF3C7", color: "#D97706" },
-                    { id: "ointment" as const, label: "연고",   Icon: Hand,     bg: "#D1FAE5", color: "#059669" },
-                    { id: "drops"    as const, label: "점안액", Icon: Eye,      bg: "#FCE7F3", color: "#DB2777" },
-                    { id: "inhaler"  as const, label: "흡입제", Icon: Wind,     bg: "#E0F2FE", color: "#0284C7" },
-                  ].map(({ id, label, Icon, bg, color }) => {
+                    { id: "tablet"   as const, label: "알약",   Icon: Pill },
+                    { id: "syrup"    as const, label: "시럽",   Icon: Droplets },
+                    { id: "powder"   as const, label: "포장약", Icon: Package },
+                    { id: "ointment" as const, label: "연고",   Icon: Hand },
+                    { id: "drops"    as const, label: "점안액", Icon: Eye },
+                    { id: "inhaler"  as const, label: "흡입제", Icon: Wind },
+                  ].map(({ id, label, Icon }) => {
                     const isSelected = type === id;
                     return (
                       <button
@@ -352,14 +358,14 @@ export function AddView({
                         onClick={() => setType(id)}
                         role="radio"
                         aria-checked={isSelected}
-                        className="flex flex-col items-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 min-h-[48px]"
+                        className="flex flex-col items-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 min-h-[48px] focus-visible:outline-2 focus-visible:outline-[var(--pf-accent)]"
                         style={{
-                          backgroundColor: isSelected ? color : bg,
-                          color: isSelected ? "#fff" : color,
-                          border: isSelected ? `2px solid ${color}` : "2px solid transparent",
+                          backgroundColor: isSelected ? "var(--pf-accent-soft)" : t.surface,
+                          color: isSelected ? "var(--pf-accent)" : t.text,
+                          border: isSelected ? "2px solid var(--pf-accent)" : `2px solid ${t.divider}`,
                         }}
                       >
-                        <Icon size={28} fill={isSelected ? "rgba(255,255,255,0.3)" : color} strokeWidth={1.5} />
+                        <Icon size={25} strokeWidth={1.8} aria-hidden="true" />
                         {label}
                       </button>
                     );
@@ -368,26 +374,33 @@ export function AddView({
               </FormField>
 
               {/* 1회 용량 */}
-              <FormField label={`1회 용량 (${doseUnit})`} cardBg={t.card} accentColor="#6C63FF">
+              <FormField label={`1회 용량 (${doseUnit})`} cardBg={t.card} accentColor="var(--pf-accent)">
                 <input
                   type="number"
+                  min="0"
+                  step="any"
+                  required
+                  aria-invalid={!validDosage}
+                  aria-describedby={!validDosage ? "dosage-error" : undefined}
                   value={dosage}
                   onChange={(e) => setDosage(e.target.value)}
                   aria-label={`1회 용량 (${doseUnit})`}
-                  className="w-full text-center text-2xl font-black rounded-2xl py-4 outline-none focus:ring-2 focus:ring-[#6C63FF]"
-                  style={{ backgroundColor: t.surface, color: "#6C63FF" }}
+                  className="w-full text-center text-2xl font-black rounded-2xl py-4 outline-none focus:ring-2 focus:ring-[var(--pf-accent)]"
+                  style={{ backgroundColor: t.surface, color: "var(--pf-accent)" }}
                 />
+                {!validDosage && <p id="dosage-error" role="alert" className="mt-2 text-sm text-[var(--pf-danger)]">1회 용량을 0보다 큰 숫자로 입력해주세요.</p>}
               </FormField>
 
               {/* 다음 버튼 */}
               <button
                 onClick={() => canGoStep2 && setStep(2)}
                 disabled={!canGoStep2}
-                className="w-full py-5 rounded-2xl font-extrabold text-lg text-white shadow-lg transition-all active:scale-[0.98] min-h-[48px] flex items-center justify-center gap-2"
+                className="w-full py-4 rounded-2xl font-extrabold text-base text-white shadow-lg transition-all active:scale-[0.98] min-h-[52px] flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                 style={{
                   background: canGoStep2
-                    ? "linear-gradient(135deg,#6C63FF,#4FACFE)"
+                    ? "var(--pf-action)"
                     : t.divider,
+                  color: canGoStep2 ? "#FFFFFF" : t.subtext,
                 }}
               >
                 다음
@@ -400,14 +413,19 @@ export function AddView({
           {step === 2 && (
             <motion.div
               key="step2"
-              initial={{ opacity: 0, x: 30 }}
+              initial={reduceMotion ? false : { opacity: 0, x: 30 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-4"
+              exit={reduceMotion ? undefined : { opacity: 0, x: -30 }}
+              transition={{ duration: reduceMotion ? 0 : 0.2 }}
+              className="space-y-5"
+              aria-labelledby="schedule-step-title"
             >
+              <div>
+                <h3 id="schedule-step-title" className="text-xl font-black tracking-tight" style={{ color: t.text }}>언제 복용하나요?</h3>
+                <p className="text-sm mt-1" style={{ color: t.subtext }}>매일 지킬 수 있는 시간과 요일을 선택하세요.</p>
+              </div>
               {/* 색상 */}
-              <FormField label="색상" cardBg={t.card} accentColor="#6C63FF">
+              <FormField label="색상" cardBg={t.card} accentColor="var(--pf-accent)">
                 <div className="flex gap-3 flex-wrap" role="radiogroup" aria-label="색상 선택">
                   {MED_COLORS.map((c) => (
                     <button
@@ -428,7 +446,7 @@ export function AddView({
               </FormField>
 
               {/* 복용 시간 — 아침/점심/저녁/기타 */}
-              <FormField label={`복용 시간 (최대 ${MAX_TIMES}개)`} cardBg={t.card} accentColor="#6C63FF">
+              <FormField label={`복용 시간 (최대 ${MAX_TIMES}개)`} cardBg={t.card} accentColor="var(--pf-accent)">
                 <div className="space-y-3">
                   {/* 슬롯 버튼 그리드 */}
                   <div className="grid grid-cols-2 gap-3">
@@ -444,11 +462,10 @@ export function AddView({
                           onClick={() => handleSlotClick(slot)}
                           disabled={isDisabled}
                           aria-pressed={isSelected}
-                          className="relative flex flex-col items-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 min-h-[90px] border-2"
+                          className="relative flex flex-col items-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 min-h-[90px] border-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                           style={{
-                            backgroundColor: isSelected ? slot.accentSoft : t.surface,
-                            borderColor: isSelected ? slot.accent : t.divider,
-                            boxShadow: isSelected ? `0 6px 16px ${slot.glow}` : "none",
+                            backgroundColor: isSelected ? "var(--pf-accent-soft)" : t.surface,
+                            borderColor: isSelected ? "var(--pf-accent)" : t.divider,
                             opacity: isDisabled ? 0.4 : 1,
                           }}
                         >
@@ -456,29 +473,29 @@ export function AddView({
                             className="w-10 h-10 rounded-xl flex items-center justify-center"
                             style={{
                               background: isSelected
-                                ? `linear-gradient(135deg, ${slot.accent}, ${slot.accent}CC)`
+                                ? "var(--pf-accent)"
                                 : dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
                             }}
                           >
                             <Icon size={20} style={{ color: isSelected ? "#fff" : t.subtext }} />
                           </div>
-                          <span style={{ color: isSelected ? slot.accent : t.subtext }}>
+                          <span style={{ color: isSelected ? "var(--pf-accent)" : t.subtext }}>
                             {slot.label}
                           </span>
                           {/* 선택된 시간 표시 — 클릭으로 수정 가능함을 암시 */}
                           {isSelected && matchedTime ? (
                             <span
-                              className="text-[11px] font-extrabold px-2 py-0.5 rounded-full"
-                              style={{ backgroundColor: slot.accent + "22", color: slot.accent }}
+                              className="text-xs font-extrabold px-2 py-0.5 rounded-full"
+                              style={{ backgroundColor: "var(--pf-accent-soft)", color: "var(--pf-accent)" }}
                             >
                               {matchedTime}
                             </span>
                           ) : slot.id === "custom" ? (
-                            <span className="text-[10px]" style={{ color: t.subtext }}>
+                            <span className="text-xs" style={{ color: t.subtext }}>
                               직접 설정
                             </span>
                           ) : (
-                            <span className="text-[10px]" style={{ color: t.subtext }}>
+                            <span className="text-xs" style={{ color: t.subtext }}>
                               탭하여 설정
                             </span>
                           )}
@@ -487,27 +504,20 @@ export function AddView({
                     })}
                   </div>
 
-                  {/* 선택된 커스텀 시간 칩 목록 */}
-                  {times.filter((t) => {
-                    const h = parseInt(t.split(":")[0], 10);
-                    // 아침/점심/저녁 슬롯에 해당하지 않는 것들 = 기타
-                    return !(h >= 5 && h < 11) && !(h >= 11 && h < 16) && !(h >= 16 || h < 5);
-                  }).length === 0 && null}
-
                   {/* 선택된 시간 전체 요약 */}
                   {times.length > 0 && (
                     <div
                       className="rounded-xl px-3 py-2 flex flex-wrap gap-2"
                       style={{ backgroundColor: t.surface }}
                     >
-                      <span className="text-[10px] font-bold w-full mb-0.5" style={{ color: t.subtext }}>
+                      <span className="text-xs font-bold w-full mb-0.5" style={{ color: t.subtext }}>
                         선택된 시간 ({times.length}/{MAX_TIMES})
                       </span>
                       {times.map((time) => (
                         <span
                           key={time}
                           className="flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full"
-                          style={{ backgroundColor: "rgba(108,99,255,0.12)", color: "#6C63FF" }}
+                          style={{ backgroundColor: "var(--pf-accent-soft)", color: "var(--pf-accent)" }}
                         >
                           {time}
                           <button
@@ -525,8 +535,8 @@ export function AddView({
               </FormField>
 
               {/* 반복 요일 */}
-              <FormField label="반복 요일" cardBg={t.card} accentColor="#6C63FF">
-                <div className="flex justify-between">
+              <FormField label="반복 요일" cardBg={t.card} accentColor="var(--pf-accent)">
+                <div className="flex flex-wrap gap-2">
                   {["월", "화", "수", "목", "금", "토", "일"].map((d, i) => (
                     <button
                       key={d}
@@ -536,9 +546,9 @@ export function AddView({
                         )
                       }
                       aria-pressed={days.includes(i)}
-                      className="w-10 h-10 rounded-xl font-bold text-xs transition-all active:scale-90 min-w-[44px] min-h-[44px]"
+                      className="w-11 h-11 rounded-xl font-bold text-sm transition-all active:scale-90"
                       style={{
-                        backgroundColor: days.includes(i) ? "#6C63FF" : t.surface,
+                        backgroundColor: days.includes(i) ? "var(--pf-action)" : t.surface,
                         color: days.includes(i) ? "#fff" : t.subtext,
                       }}
                     >
@@ -552,11 +562,12 @@ export function AddView({
               <button
                 onClick={() => canGoStep3 && setStep(3)}
                 disabled={!canGoStep3}
-                className="w-full py-5 rounded-2xl font-extrabold text-lg text-white shadow-lg transition-all active:scale-[0.98] min-h-[48px] flex items-center justify-center gap-2"
+                className="w-full py-4 rounded-2xl font-extrabold text-base text-white shadow-lg transition-all active:scale-[0.98] min-h-[52px] flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                 style={{
                   background: canGoStep3
-                    ? "linear-gradient(135deg,#6C63FF,#4FACFE)"
+                    ? "var(--pf-action)"
                     : t.divider,
+                  color: canGoStep3 ? "#FFFFFF" : t.subtext,
                 }}
               >
                 다음
@@ -569,12 +580,17 @@ export function AddView({
           {step === 3 && (
             <motion.div
               key="step3"
-              initial={{ opacity: 0, x: 30 }}
+              initial={reduceMotion ? false : { opacity: 0, x: 30 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-4"
+              exit={reduceMotion ? undefined : { opacity: 0, x: -30 }}
+              transition={{ duration: reduceMotion ? 0 : 0.2 }}
+              className="space-y-5"
+              aria-labelledby="memo-step-title"
             >
+              <div>
+                <h3 id="memo-step-title" className="text-xl font-black tracking-tight" style={{ color: t.text }}>마지막으로 메모를 남겨볼까요?</h3>
+                <p className="text-sm mt-1" style={{ color: t.subtext }}>복용 방법이나 기억할 내용을 적어두세요. 선택 사항입니다.</p>
+              </div>
               {/* 등록 요약 카드 */}
               <div
                 className="rounded-2xl p-4 space-y-1"
@@ -590,8 +606,8 @@ export function AddView({
                   {times.map((t_) => (
                     <span
                       key={t_}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                      style={{ backgroundColor: "rgba(108,99,255,0.12)", color: "#6C63FF" }}
+                      className="text-xs font-bold px-2 py-0.5 rounded-full"
+                      style={{ backgroundColor: "var(--pf-accent-soft)", color: "var(--pf-accent)" }}
                     >
                       {t_}
                     </span>
@@ -600,14 +616,14 @@ export function AddView({
               </div>
 
               {/* 메모 */}
-              <FormField label="복용 메모 (선택)" cardBg={t.card} accentColor="#6C63FF">
+              <FormField label="복용 메모 (선택)" cardBg={t.card} accentColor="var(--pf-accent)">
                 <textarea
                   value={memo}
                   onChange={(e) => setMemo(e.target.value)}
                   aria-label="복용 메모"
                   placeholder="예: 식후 30분 복용, 물 한 컵과 함께..."
                   rows={4}
-                  className="w-full rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#6C63FF] resize-none"
+                  className="w-full rounded-2xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[var(--pf-accent)] resize-none"
                   style={{ backgroundColor: t.surface, color: t.text }}
                 />
               </FormField>
@@ -615,13 +631,14 @@ export function AddView({
               {/* 저장 버튼 */}
               <button
                 onClick={save}
-                disabled={!name.trim() || saving || times.length === 0 || days.length === 0}
-                className="w-full py-5 rounded-2xl font-extrabold text-lg text-white shadow-lg transition-all active:scale-[0.98] min-h-[48px]"
+                disabled={!name.trim() || !validDosage || saving || times.length === 0 || days.length === 0}
+                className="w-full py-4 rounded-2xl font-extrabold text-base text-white shadow-lg transition-all active:scale-[0.98] min-h-[52px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                 style={{
                   background:
-                    name.trim() && !saving && times.length > 0 && days.length > 0
-                      ? "linear-gradient(135deg,#6C63FF,#4FACFE)"
+                    name.trim() && validDosage && !saving && times.length > 0 && days.length > 0
+                      ? "var(--pf-action)"
                       : t.divider,
+                  color: name.trim() && validDosage && !saving && times.length > 0 && days.length > 0 ? "#FFFFFF" : t.subtext,
                 }}
               >
                 {saving ? "저장 중..." : "저장하기"}
