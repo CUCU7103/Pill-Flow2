@@ -103,8 +103,10 @@ Flyway 이력은 전용 `flyway` 스키마에 저장한다.
 
 ## 배포
 
+- Vercel(웹) + AWS EC2(`api.pillflow.app`, Terraform `infra/terraform`, GitHub Actions `deploy.yml`).
 - 웹: Vercel이 `pnpm --filter @workspace/pillflow build`로 빌드, `artifacts/pillflow/dist/public` 서빙, 모든 경로를 `/index.html`로 rewrite (`vercel.json`).
 - Android: 같은 `dist/public`을 Capacitor `webDir`로 사용. `appId`(`com.pillflow.app`)는 변경 불가.
+- 백엔드(`backend/`): `infra/terraform/{bootstrap,main}`이 EC2·ECR·SSM·IAM을 프로비저닝하고, `.github/workflows/deploy.yml`이 push/workflow_dispatch에서 이미지 빌드(backend 트리 해시 태그)·Flyway 마이그레이션·EC2 배포(SSM)·스모크 테스트를 수행한다. 운영 스크립트(`infra/scripts/put-secret.sh`, `flyway-baseline.sh`, `set-api-role-password.sh`)와 최초 가동 절차·롤백 방법은 `backend/README.md`의 "운영 배포" 절 참고. 2026-09-26 기준 이 절차는 아직 실행되지 않았다 — 운영 Supabase에는 2026-09-25 ALTER로 V1 스키마만 적용되어 있고, Flyway baseline(1)과 V2(`pillflow_api` role)는 미적용이다.
 
 ## 저장소 관례
 
