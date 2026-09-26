@@ -42,6 +42,7 @@ jobs:
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     outputs:
@@ -81,6 +82,7 @@ jobs:
     if: needs.changes.outputs.deploy == 'true' && inputs.image_tag == ''
     runs-on: ubuntu-24.04-arm
     environment: production
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -115,6 +117,7 @@ jobs:
     if: "!cancelled() && needs.changes.outputs.deploy == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped')"
     runs-on: ubuntu-24.04-arm
     environment: production
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
@@ -143,6 +146,7 @@ jobs:
     if: "!cancelled() && needs.migrate.result == 'success' && inputs.migrate_only != true"
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -165,6 +169,7 @@ jobs:
     needs: deploy
     if: "!cancelled() && needs.deploy.result == 'success'"
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: 헬스체크
         run: |
