@@ -1,0 +1,67 @@
+# PR과 main push마다 백엔드 테스트, 프론트 빌드, Terraform 정적 검사, 배포 스크립트 테스트를 실행한다.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: 백엔드 테스트 (Testcontainers)
+        working-directory: backend
+        run: ./gradlew test --no-daemon
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - name: 알림 스케줄 테스트
+        working-directory: artifacts/pillflow
+        run: ../../scripts/node_modules/.bin/tsx --tsconfig tsconfig.json src/lib/notificationSchedule.test.ts
+
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.14.8
+      - name: terraform fmt
+        run: terraform fmt -check -recursive infra/terraform
+      - name: terraform validate
+        run: |
+          for dir in infra/terraform/bootstrap infra/terraform/main; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+      - name: 배포 스크립트 테스트
+        run: |
+          chmod +x infra/deploy/test/fakes/* infra/deploy/test/*.sh
+          infra/deploy/test/deploy_test.sh
+          infra/deploy/test/send_deploy_test.sh

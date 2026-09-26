@@ -1,0 +1,6 @@
+# 복사해서 backend.hcl로 저장한다(gitignore 대상). bucket은 bootstrap의 state_bucket 출력값.
+bucket       = "pillflow-tfstate-<ACCOUNT_ID>"
+key          = "main/terraform.tfstate"
+region       = "ap-northeast-1"
+encrypt      = true
+use_lockfile = true

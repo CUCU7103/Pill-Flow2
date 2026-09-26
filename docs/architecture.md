@@ -1,6 +1,6 @@
 # PillFlow 아키텍처
 
-> 최종 업데이트: 2026-09-25
+> 최종 업데이트: 2026-09-26
 
 ## 1. 현재 구조와 목표
 
@@ -27,6 +27,11 @@ Pill-Flow2/
 │       ├── medication/                  # Medication 엔티티/리포지토리
 │       └── intake/                      # MedicationLog 엔티티/리포지토리
 ├── docs/                                # 아키텍처 및 설계 문서
+├── infra/
+│   ├── terraform/{bootstrap,main}/      # AWS 인프라(state 버킷, EC2·ECR·SSM·IAM)
+│   ├── deploy/                          # EC2에서 실행되는 compose.yml·Caddyfile·배포 스크립트
+│   └── scripts/                         # 운영 스크립트(put-secret·flyway-baseline·set-api-role-password)
+├── .github/workflows/                   # ci.yml, deploy.yml (GitHub Actions)
 ├── scripts/                             # 프론트엔드 도구
 └── supabase/functions/                 # 사진 분석 Edge Function
 ```
@@ -57,7 +62,27 @@ Flyway 기록은 전용 `flyway` 스키마에 보관한다. 테이블은 PostgRE
 
 저장소의 `V1__init.sql`은 빈 DB에서 초기 스키마를 만들며 데이터를 삭제하는 `DROP` 문은 포함하지 않는다. 적용된 운영 스키마는 Testcontainers에서 구 스키마와 ALTER 절차를 재현한 뒤 Flyway baseline(1), migrate(V2), JPA `validate`까지 확인한다. 실제 Supabase 연결이나 변경은 별도 사람 검토 전까지 하지 않는다.
 
-## 6. 개발 및 검증
+## 6. 배포 인프라 (구성 준비됨, 적용 전)
+
+`infra/terraform`이 AWS 리소스를, `.github/workflows/deploy.yml`이 배포 파이프라인을 정의한다. 2026-09-26 기준 이 구성은 코드로만 존재하며 실제 `terraform apply`·GitHub Environment 설정·첫 배포는 아직 수행되지 않았다.
+
+```text
+GitHub Actions(deploy.yml)
+  └ build(ECR push, backend 트리 해시 태그) → migrate(Flyway, migrate 프로파일)
+    → deploy(SSM RunCommand) → smoke(헬스체크)
+        │
+        ▼
+EC2 인스턴스 ── Caddy(TLS, 80→443 리다이렉트) ── Spring Boot API(app 컨테이너, ECR 이미지)
+        │
+        └ SSM Parameter Store: /pillflow/prod/app/*(런타임), /pillflow/prod/migration/*(DDL, EC2는 Deny)
+```
+
+- **EC2 + Caddy**: 단일 인스턴스에서 Caddy가 TLS 종료와 HTTP→HTTPS 리다이렉트를 담당하고, `docker compose`가 Spring Boot API 컨테이너(`app`)를 구동한다. IMDSv2(`HttpTokens=required`)를 강제한다.
+- **ECR**: `pillflow-api` 리포지토리. 이미지 태그는 커밋 SHA가 아니라 `backend` 디렉터리 트리 해시라 백엔드가 바뀌지 않은 배포는 빌드를 건너뛴다.
+- **SSM Parameter Store**: 런타임 자격 증명(`/pillflow/prod/app/*`)은 EC2 인스턴스 role만, DDL 자격 증명(`/pillflow/prod/migration/*`)은 GitHub 배포 role만 읽는다. EC2 role은 `/pillflow/prod/migration/*`에 대해 명시적 `Deny`가 걸려 있다.
+- **GitHub Actions**: OIDC로 `pillflow-github-deploy` role을 assume하며, 신뢰 조건이 `production` GitHub Environment 단위(`environment:production`)라서 해당 Environment의 배포 브랜치를 `main`으로 제한하는 것이 필수 설정이다.
+
+## 7. 개발 및 검증
 
 프론트엔드:
 
@@ -81,12 +106,12 @@ docker build -t pillflow-api:dev .
 
 백엔드 테스트는 일반 PostgreSQL 17 Testcontainers와 테스트 전용 Supabase 스텁을 사용한다. 운영 Supabase에 접속하지 않으며 JWT 검증, 스키마/권한/RLS, JPA 매핑과 공통 오류 처리를 테스트한다.
 
-## 7. 이후 전환 단계
+## 8. 이후 전환 단계
 
 1. 기반: DB 스키마 정비, 인증 가능한 Spring Boot 골격, 엔티티와 테스트.
 2. 약 및 복용 API 구현 후 앱 저장소를 Spring API로 전환.
 3. 통계 API 이전.
 4. 사진 분석 기능 이전 여부 결정 및 구현.
-5. 배포·CI 구성.
+5. 배포·CI 구성 — 코드(Terraform, GitHub Actions)는 준비됐으나(6절), 운영 적용(`terraform apply`, GitHub Environment 설정, 첫 배포)은 아직 수행하지 않았다.
 
-이번 단계는 1번만 다룬다. 향후 단계가 실제 DB 적용, 신규 REST API, 앱 전환 또는 운영 인프라 변경을 포함할 수 있으나 현재 구현에서는 이를 앞당기지 않는다.
+1~4번은 앱의 API 전환 범위이며 이 문서 시점에서 아직 시작하지 않았다. 5번은 인프라 코드만 작성된 상태다. 실제 DB 적용, 신규 REST API, 앱 전환, 운영 인프라 가동은 별도 승인 후 진행한다.

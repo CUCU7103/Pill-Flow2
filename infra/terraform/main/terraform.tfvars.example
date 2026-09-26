@@ -1,0 +1,6 @@
+# 복사해서 terraform.tfvars로 저장한다(gitignore 대상).
+alert_email = "you@example.com"
+
+# 참고: variables.tf의 db_pooler_host(aws-1-ap-northeast-1...)와 cors_allowed_origins 기본값은
+# 2026-09-25에 Supabase 대시보드·배포 대상 기준으로 확인된 값이다. apply 직전에 다시 확인한다
+# (pooler host는 리전만으로 조합할 수 없고, 대시보드 Connect 화면에서 그대로 복사해야 한다).
