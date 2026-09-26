@@ -1,4 +1,4 @@
-# main 배포: 변경 감지 → arm64 이미지 빌드 → Flyway 마이그레이션 → EC2 교체(SSM) → 스모크 테스트
+# main 배포: 백엔드 트리 해시 태그 → 빌드(없을 때만) → 마이그레이션 → EC2 배포 → 스모크
 name: deploy
 
 on:
@@ -60,8 +60,9 @@ jobs:
           echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           if [[ -n "$INPUT_TAG" ]]; then
             # 수동으로 지정한 기존 이미지 태그 — 셸에 그대로 삽입되므로 형식을 검증한다.
+            # 입력값 자체는 로그에 남기지 않는다(형식 위반 사유만 알린다).
             if [[ ! "$INPUT_TAG" =~ ^[A-Za-z0-9._-]{1,128}$ ]]; then
-              echo "잘못된 image_tag 입력: $INPUT_TAG" >&2
+              echo "잘못된 image_tag 입력: 허용 문자(영문/숫자/./_/-)와 128자 제한을 벗어났다" >&2
               exit 1
             fi
             echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
@@ -69,8 +70,9 @@ jobs:
             # 태그 = backend 디렉토리 트리 해시(커밋 SHA 대신). backend/가 바뀌지 않은 push는
             # 같은 트리 해시가 나와 build가 "이미지 이미 존재"로 건너뛰고, migrate는 적용할
             # 변경이 없으며, deploy도 같은 이미지로 컨테이너가 유지된 채 compose.yml/Caddyfile
-            # 등 배포 스크립트 변경만 반영된다.
-            echo "tag=$(git rev-parse "$HEAD_SHA:backend")" >> "$GITHUB_OUTPUT"
+            # 등 배포 스크립트 변경만 반영된다. 별도 줄로 계산해 실패 시 단계 자체가 중단되게 한다.
+            tag="$(git rev-parse --verify "$HEAD_SHA:backend")"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
           fi
           echo "deploy=true" >> "$GITHUB_OUTPUT"
 
