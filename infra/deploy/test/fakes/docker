@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # 테스트용 가짜 docker — 호출만 기록한다. login은 표준입력을 소비한다.
+# compose 하위 명령은 실제 compose처럼 파일 전체를 보간하므로 .env가 없으면 실패해야 한다(C1 회귀 방지).
 echo "docker $*" >> "$CALLS_FILE"
 if [[ "$1" == "login" ]]; then cat > /dev/null; fi
+if [[ "$1" == "compose" ]] && [[ ! -f "$DEPLOY_DIR/.env" ]]; then
+  echo "가짜 docker: compose 호출 시점에 .env가 없다" >&2
+  exit 1
+fi
 exit 0

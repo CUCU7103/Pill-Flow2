@@ -7,6 +7,7 @@ failures=0
 assert() { local d="$1"; shift; if "$@"; then echo "  ok   - $d"; else echo "  FAIL - $d"; failures=$((failures+1)); fi; }
 
 export CALLS_FILE; CALLS_FILE="$(mktemp)"
+trap 'rm -f "$CALLS_FILE"' EXIT
 export PATH="$HERE/fakes:$PATH" POLL_ATTEMPTS=2 POLL_INTERVAL=0
 
 echo "케이스 1: 원격 성공"
@@ -24,6 +25,12 @@ echo "케이스 2: 원격 실패"
 : > "$CALLS_FILE"; export FAKE_SSM_STATUS=Failed
 set +e; bash "$SCRIPT" i-0abc repo.example/pillflow-api sha1 > /dev/null 2>&1; rc=$?; set -e
 assert "종료 코드 1" test "$rc" -eq 1
+
+echo "케이스 3: 태그에 셸 메타문자 → SSM 호출 없이 즉시 중단"
+: > "$CALLS_FILE"; export FAKE_SSM_STATUS=Success
+set +e; bash "$SCRIPT" i-0abc repo.example/pillflow-api 'sha1; rm -rf /' > /dev/null 2>&1; rc=$?; set -e
+assert "종료 코드 1" test "$rc" -eq 1
+assert "send-command 호출 안 함" bash -c "! grep -q 'aws ssm send-command' '$CALLS_FILE'"
 
 if [[ $failures -gt 0 ]]; then echo "실패 $failures건"; exit 1; fi
 echo "send_deploy_test 전체 통과"

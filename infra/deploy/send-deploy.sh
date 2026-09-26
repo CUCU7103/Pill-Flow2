@@ -10,6 +10,16 @@ POLL_ATTEMPTS="${POLL_ATTEMPTS:-180}"
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# 원격 셸 명령 문자열에 그대로 삽입되므로, 공백·셸 메타문자가 섞이지 않도록 미리 검증한다.
+if [[ ! "$TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "잘못된 태그: $TAG" >&2
+  exit 1
+fi
+if [[ ! "$REPO_URI" =~ ^[A-Za-z0-9._/:-]+$ ]]; then
+  echo "잘못된 이미지 저장소 URI: $REPO_URI" >&2
+  exit 1
+fi
+
 b64() { base64 < "$1" | tr -d '\n'; }
 
 # 원격에서 실행할 명령 목록(JSON 배열). 파일은 base64로 전달해 따옴표·개행 문제를 없앤다.
