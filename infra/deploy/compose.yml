@@ -18,6 +18,9 @@ services:
         awslogs-region: ap-northeast-1
         awslogs-group: /pillflow/api
         awslogs-stream: app
+        # CloudWatch 장애로 로그 전송이 막혀도 컨테이너 stdout이 블로킹되지 않게 한다.
+        mode: non-blocking
+        max-buffer-size: 4m
   caddy:
     image: caddy:2.11.4
     ports:
@@ -35,3 +38,5 @@ services:
         awslogs-region: ap-northeast-1
         awslogs-group: /pillflow/api
         awslogs-stream: caddy
+        mode: non-blocking
+        max-buffer-size: 4m

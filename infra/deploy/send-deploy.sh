@@ -47,9 +47,22 @@ command_id="$(aws ssm send-command \
   --query Command.CommandId --output text)"
 
 # aws ssm wait는 최대 대기 시간이 짧아 직접 폴링한다.
+# 명령이 아직 인스턴스에 전달되지 않아 생기는 InvocationDoesNotExist만 "대기 중"으로 재시도한다.
+# AccessDenied 등 다른 오류는 숨기지 않고 즉시 출력한 뒤 실패로 종료한다.
+err_file="$(mktemp)"; trap 'rm -f "$err_file"' EXIT
 status="Pending"
 for ((i = 1; i <= POLL_ATTEMPTS; i++)); do
-  status="$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)"
+  if status="$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --query Status --output text 2>"$err_file")"; then
+    :
+  else
+    err="$(cat "$err_file")"
+    if [[ "$err" == *InvocationDoesNotExist* ]]; then
+      status="Pending"
+    else
+      echo "$err" >&2
+      exit 1
+    fi
+  fi
   case "$status" in
     Pending | InProgress | Delayed) sleep "$POLL_INTERVAL" ;;
     *) break ;;

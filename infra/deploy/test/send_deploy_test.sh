@@ -38,5 +38,25 @@ set +e; bash "$SCRIPT" i-0abc 'repo example/pillflow-api' sha1 > /dev/null 2>&1;
 assert "종료 코드 1" test "$rc" -eq 1
 assert "send-command 호출 안 함" bash -c "! grep -q 'aws ssm send-command' '$CALLS_FILE'"
 
+echo "케이스 5: get-command-invocation이 AccessDenied류 오류 → Pending으로 숨기지 않고 즉시 실패(M9)"
+: > "$CALLS_FILE"; unset FAKE_SSM_STATUS; export FAKE_SSM_ERROR="An error occurred (AccessDeniedException) when calling the GetCommandInvocation operation"
+start_ts=$(date +%s)
+set +e; out="$(bash "$SCRIPT" i-0abc repo.example/pillflow-api sha1 2>&1)"; rc=$?; set -e
+end_ts=$(date +%s)
+unset FAKE_SSM_ERROR
+assert "종료 코드 1" test "$rc" -eq 1
+assert "오류 메시지를 그대로 출력" bash -c "echo \"\$1\" | grep -q AccessDeniedException" _ "$out"
+assert "폴링 재시도 없이 빠르게 종료(2회 대기하지 않음)" test $((end_ts - start_ts)) -lt 5
+
+echo "케이스 6: InvocationDoesNotExist는 Pending으로 재시도(회귀 방지, M9)"
+: > "$CALLS_FILE"; export POLL_ATTEMPTS=3
+export FAKE_SSM_ERROR="An error occurred (InvocationDoesNotExist) when calling the GetCommandInvocation operation"
+# 명령이 아직 인스턴스에 전달되지 않은 상태를 재현한다 — 매 시도마다 재시도하다
+# POLL_ATTEMPTS 소진 후 status=Pending으로 실패 종료해야 한다(AccessDenied처럼 즉시 중단되면 안 됨).
+set +e; bash "$SCRIPT" i-0abc repo.example/pillflow-api sha1 > /dev/null 2>&1; rc=$?; set -e
+unset FAKE_SSM_ERROR; export POLL_ATTEMPTS=2
+assert "종료 코드 1(계속 Pending 취급되다 시도 소진)" test "$rc" -eq 1
+assert "get-command-invocation을 여러 번 폴링함" test "$(grep -c 'ssm get-command-invocation' "$CALLS_FILE")" -ge 3
+
 if [[ $failures -gt 0 ]]; then echo "실패 $failures건"; exit 1; fi
 echo "send_deploy_test 전체 통과"

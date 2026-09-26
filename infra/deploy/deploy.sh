@@ -3,6 +3,10 @@
 # 사용법: deploy.sh <image_repo_uri> <tag>
 set -euo pipefail
 
+# SSM Run Command는 셸 환경이 최소화되어 HOME이 비어 있을 수 있고, docker/compose는 설정·인증
+# 파일 경로를 계산할 때 HOME을 참조하므로 미리 채워 둔다.
+export HOME="${HOME:-/root}"
+
 REPO_URI="$1"
 TAG="$2"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/pillflow}"
@@ -89,6 +93,10 @@ fi
 
 if [[ "$app_started" -eq 1 ]] && wait_healthy; then
   echo "$TAG" > current_tag
+  # 이번에 실제로 서비스에 반영된 env를 "마지막으로 확인된 정상 상태"로 별도 보관한다.
+  # app.env.prev는 매 실행마다 "직전 한 걸음"만 담아 실패가 반복되면 낡은 값일 수 있으므로,
+  # 롤백은 이 파일을 우선한다.
+  cp app.env app.env.good
   docker image prune -f > /dev/null
   echo "배포 성공: $TAG"
   exit 0
@@ -97,7 +105,12 @@ fi
 echo "헬스체크 실패: $TAG" >&2
 if [[ -n "$previous" ]]; then
   # 이전 이미지는 인스턴스에 이미 있으므로 pull 없이 기동한다(ECR에서 만료됐어도 롤백 가능).
-  if [[ -f app.env.prev ]]; then cp app.env.prev app.env; fi
+  # 마지막으로 확인된 정상 env(app.env.good)를 우선 복원하고, 없으면 직전 값(app.env.prev)으로 대체한다.
+  if [[ -f app.env.good ]]; then
+    cp app.env.good app.env
+  elif [[ -f app.env.prev ]]; then
+    cp app.env.prev app.env
+  fi
   start_app "$REPO_URI:$previous" || true
   if wait_healthy; then echo "이전 태그로 롤백 완료: $previous" >&2; else echo "롤백 후에도 비정상: $previous" >&2; fi
 else

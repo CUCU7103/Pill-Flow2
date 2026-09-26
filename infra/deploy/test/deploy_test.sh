@@ -66,8 +66,26 @@ assert "큰따옴표로 시작하는 값이 작은따옴표로 감싸져 그대�
 assert "app.env 권한 600" test "$(stat -c %a "$DEPLOY_DIR/app.env" 2>/dev/null || stat -f %Lp "$DEPLOY_DIR/app.env")" = "600"
 assert "caddy 기동" grep -q "docker compose up -d caddy" "$CALLS_FILE"
 assert "app이 caddy보다 먼저 기동(.env 없이 compose 호출 금지)" assert_order "docker compose up -d app" "docker compose up -d caddy" "$CALLS_FILE"
+assert "성공 시 app.env.good 저장(M1)" grep -qxF "DB_PASSWORD='p@ss=wo#rd with space'" "$DEPLOY_DIR/app.env.good"
 
-echo "케이스 2: 헬스체크 실패 → 이전 태그로 롤백"
+echo "케이스 2: 헬스체크 실패 → 마지막으로 확인된 정상 env(app.env.good)로 롤백"
+setup
+echo "good1" > "$DEPLOY_DIR/current_tag"
+# app.env.good = 마지막 성공 배포가 저장해 둔 정상 env. app.env.prev는 그 뒤 끼어든(이번 실행
+# 이전의) 실패한 배포가 남긴 "직전 한 걸음"일 뿐이라 good과 다른 값으로 일부러 어긋나게 둔다 —
+# 이번 롤백이 prev가 아니라 good을 우선해서 복원하는지 검증한다(M1).
+printf 'MARKER=truly-good-env\n' > "$DEPLOY_DIR/app.env.good"
+printf 'MARKER=stale-prev-env\n' > "$DEPLOY_DIR/app.env.prev"
+printf 'MARKER=intermediate-env\n' > "$DEPLOY_DIR/app.env"
+chmod 600 "$DEPLOY_DIR/app.env" "$DEPLOY_DIR/app.env.good" "$DEPLOY_DIR/app.env.prev"
+set +e; bash "$SCRIPT" "$REPO" bad2 > /dev/null 2>&1; rc=$?; set -e
+assert "종료 코드 1" test "$rc" -eq 1
+assert "current_tag 유지(good1)" test "$(cat "$DEPLOY_DIR/current_tag")" = "good1"
+assert ".env가 이전 이미지로 복구" grep -qx "APP_IMAGE=$REPO:good1" "$DEPLOY_DIR/.env"
+assert "롤백 시 pull 안 함" bash -c "! grep -q 'docker pull $REPO:good1' '$CALLS_FILE'"
+assert "app.env가 app.env.good(마지막 정상 상태)으로 복원(M1)" grep -qx 'MARKER=truly-good-env' "$DEPLOY_DIR/app.env"
+
+echo "케이스 2b: app.env.good이 없으면 app.env.prev로 대체(M1 하위 호환)"
 setup
 echo "good1" > "$DEPLOY_DIR/current_tag"
 printf 'MARKER=old-app-env\n' > "$DEPLOY_DIR/app.env"
@@ -76,8 +94,7 @@ set +e; bash "$SCRIPT" "$REPO" bad2 > /dev/null 2>&1; rc=$?; set -e
 assert "종료 코드 1" test "$rc" -eq 1
 assert "current_tag 유지(good1)" test "$(cat "$DEPLOY_DIR/current_tag")" = "good1"
 assert ".env가 이전 이미지로 복구" grep -qx "APP_IMAGE=$REPO:good1" "$DEPLOY_DIR/.env"
-assert "롤백 시 pull 안 함" bash -c "! grep -q 'docker pull $REPO:good1' '$CALLS_FILE'"
-assert "app.env가 롤백 시 이전 내용으로 복원" grep -qx 'MARKER=old-app-env' "$DEPLOY_DIR/app.env"
+assert "app.env가 app.env.prev로 복원(good 없음)" grep -qx 'MARKER=old-app-env' "$DEPLOY_DIR/app.env"
 
 echo "케이스 3: 최초 배포 실패(이전 태그 없음)"
 setup
