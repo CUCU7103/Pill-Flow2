@@ -115,7 +115,7 @@ gh workflow run deploy.yml --repo <owner>/<repo> --ref main -f image_tag=<이전
 - **GitHub OIDC 공급자는 참조만 한다**: `token.actions.githubusercontent.com` 공급자는 계정당 하나이며 다른 프로젝트와 공유하므로 Terraform은 `data` 소스로 기존 공급자를 참조만 한다. 새 계정에 처음 배포한다면 apply 전에 공급자를 먼저 만들어 둔다(`aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com`).
 - **롤백 검증 절차**: 스펙 문서 `docs/superpowers/specs/2026-09-25-aws-terraform-deploy-design.md` §6 "완료 기준"의 롤백 항목대로, 헬스체크에 실패하는 태그를 수동으로 (`gh workflow run deploy.yml -f image_tag=<실패하는-태그>`) 배포해 파이프라인이 실패하고 이전 버전이 계속 서비스되는 것을 최소 1회 확인해야 한다.
 - **main push마다 migrate 실행**: `deploy.yml`은 자동 배포가 켜져 있으면 main에 push될 때마다(백엔드 변경 여부와 무관하게) DDL 자격 증명(`FLYWAY_USERNAME=postgres.<project-ref>`)으로 migrate 단계를 실행한다. 적용할 마이그레이션이 없으면 Flyway는 그냥 무동작(no-op)으로 끝난다.
-- **`set-api-role-password.sh` 실행 전 확인 사항**: 이 스크립트는 `ALTER ROLE pillflow_api PASSWORD '...'`를 실행한다. Supabase Postgres의 `log_statement` 설정(`none`/`ddl`/`mod`/`all`)에 따라 이 SQL문이 비밀번호 평문과 함께 서버 로그에 그대로 남을 수 있으므로, 실행 전에 반드시 현재 `log_statement` 값을 확인하고(`none` 또는 최소한 `ddl`이 로그에 SQL 텍스트를 포함하지 않는지) 필요하면 일시적으로 낮춰야 한다.
+- **`set-api-role-password.sh`와 서버 로그**: Supabase는 `log_statement=ddl`이라 `ALTER ROLE` 문장이 서버 로그에 남는다(2026-09-26 확인). 그래서 스크립트는 평문 비밀번호 대신 로컬에서 계산한 SCRAM-SHA-256 verifier만 DB로 보낸다(psql `\password`와 같은 방식). 로그에는 해시만 남고, 평문은 SSM `DB_PASSWORD`에만 저장된다.
 
 ### 문제 해결
 

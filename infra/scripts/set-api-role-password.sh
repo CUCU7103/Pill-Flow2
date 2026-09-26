@@ -16,7 +16,20 @@ pg_env="$(mktemp)"; ssm_json="$(mktemp)"
 trap 'rm -f "$pg_env" "$ssm_json"' EXIT
 printf 'PGPASSWORD=%s\n' "$admin_pw" > "$pg_env"
 
-printf '\\set pw %s\nALTER ROLE pillflow_api PASSWORD :'"'"'pw'"'"';\n' "$new_pw" \
+# Supabase는 log_statement=ddl이라 ALTER ROLE 문장이 서버 로그에 남는다.
+# 평문 대신 로컬에서 계산한 SCRAM-SHA-256 verifier만 보낸다(psql \password와 같은 방식).
+# new_pw는 프로세스 인자로 노출되지 않도록 stdin으로 python에 넘긴다.
+# shellcheck disable=SC2016 # 작은따옴표 안은 셸이 아닌 python 코드다
+verifier="$(printf '%s' "$new_pw" | python3 -c '
+import base64, hashlib, hmac, os, sys
+pw = sys.stdin.read().encode(); salt = os.urandom(16); it = 4096
+salted = hashlib.pbkdf2_hmac("sha256", pw, salt, it)
+client_key = hmac.new(salted, b"Client Key", "sha256").digest()
+server_key = hmac.new(salted, b"Server Key", "sha256").digest()
+b64 = lambda b: base64.b64encode(b).decode()
+print(f"SCRAM-SHA-256${it}:{b64(salt)}${b64(hashlib.sha256(client_key).digest())}:{b64(server_key)}")
+')"
+printf '\\set pw '"'"'%s'"'"'\nALTER ROLE pillflow_api PASSWORD :'"'"'pw'"'"';\n' "$verifier" \
   | docker run --rm -i --env-file "$pg_env" postgres:17-alpine \
       psql "host=${hostport%%:*} port=${hostport##*:} dbname=postgres user=$admin_user sslmode=require" -v ON_ERROR_STOP=1 -q
 
