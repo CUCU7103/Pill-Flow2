@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PillFlow — 복약 관리 앱. React SPA 하나를 웹(Vercel)과 Android 앱(Capacitor)으로 함께 배포한다.
 프론트엔드는 pnpm workspace에 있고, Kotlin Spring Boot 백엔드는 루트 `backend/`의 독립 Gradle 프로젝트다.
-현재 앱은 Supabase Auth와 Supabase PostgreSQL에 직접 연결하며, Spring Boot API는 향후 전환을 위한 기반이다.
+로그인은 Supabase Auth를 유지하고, 데이터 요청은 `VITE_API_BASE_URL` 설정 여부에 따라 Kotlin API 또는 기존 Supabase 직접 경로를 사용한다.
 
 ## 명령어
 
@@ -48,21 +48,23 @@ cd artifacts/pillflow
 
 ### 환경변수
 
-`artifacts/pillflow/.env.local`에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` 필요 (`.env.example` 참고). 없으면 `src/lib/supabase.ts`가 import 시점에 throw한다.
+`artifacts/pillflow/.env.local`에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`가 필요하다 (`artifacts/pillflow/.env.example` 참고). `VITE_API_BASE_URL`을 설정하면 약·복용·주간 통계 요청을 Kotlin API로 보내고, 비우면 기존 Supabase 직접 경로를 사용한다. 없으면 `src/lib/supabase.ts`가 import 시점에 throw한다.
 
 ## 아키텍처
 
 ### 현재 데이터 흐름 (중요)
 
-프론트엔드는 **Supabase에 직접 접근**한다 (supabase-js + RLS). 사용자별 데이터 격리는 `medications.user_id` + RLS 정책으로 이뤄지므로, insert 시 `user_id`를 반드시 넣어야 한다.
+로그인과 사진 분석은 Supabase를 사용한다. 약·복용·주간 통계 데이터는 `VITE_API_BASE_URL`이 있으면 JWT를 붙여 Kotlin API로 보내고, 없으면 롤백용 Supabase 직접 경로(supabase-js + RLS)를 사용한다.
 
 ```
 App.tsx ─ useAuth (Google OAuth, Supabase Auth)
-        └ useMedications(user.id) ─ lib/medicationRepository.ts ─ Supabase PostgREST
+        └ useMedications(user.id) ─ lib/medicationDataSource.ts
+             ├ VITE_API_BASE_URL 있음 ─ apiClient.ts ─ Kotlin API
+             └ 없으면 ─ medicationRepository.ts ─ Supabase PostgREST
                                      └ lib/medicationMapper.ts (DB row → Medication)
 ```
 
-`backend/`에는 Spring Boot API 기반과 Flyway 소유 스키마가 있다. 이번 단계에서는 앱의 API 호출을 전환하지 않는다.
+Kotlin API 모드의 엔드포인트는 `GET/POST/DELETE /api/v1/medications`, `PUT/DELETE /api/v1/medications/{id}/intakes/{date}`, `GET /api/v1/stats/weekly`다. API는 사용자 JWT의 `sub`로 소유권을 확인하며, 클라이언트는 로컬 `YYYY-MM-DD`와 IANA 시간대를 통계 요청에 보낸다.
 운영 Supabase에는 2026-09-25 데이터 보존 `ALTER` 방식으로 V1 스키마가 이미 적용되었다(당시 `medications` 약 4행, `medication_logs` 약 8행, 계정 3개). V1 이외의 서버 런타임 role(V2)은 아직 적용되지 않았다. Flyway 이력 스키마는 비어 있으므로 운영 서버 연결 전 버전 1로 명시적 baseline을 한 번 실행한 뒤 migrate한다. 운영 DB에서 V1을 실행하지 않는다. 이후 DB 변경은 `backend/src/main/resources/db/migration`의 Flyway 마이그레이션으로 관리하고, 이 작업에서는 실제 Supabase에 연결하거나 변경하지 않는다.
 Flyway 이력은 전용 `flyway` 스키마에 저장한다.
 로그 날짜 컬럼은 `taken_on`이며 앱은 로컬 날짜 `YYYY-MM-DD` 문자열을 그대로 사용한다.
@@ -95,7 +97,8 @@ Flyway 이력은 전용 `flyway` 스키마에 저장한다.
 ### Kotlin 백엔드 기반 (`backend/`)
 
 - 독립 Gradle Kotlin DSL 프로젝트. Kotlin + Spring Boot, Spring Data JPA, Flyway, Spring Security OAuth2 Resource Server, Actuator를 사용한다.
-- 기능별 패키지: `common`, `security`, `me`, `medication`, `intake`. 현재 공개 API는 인증 확인용 `GET /api/v1/me`와 Actuator health뿐이며, 약/복용 CRUD와 앱 전환은 다음 단계 범위다.
+- 기능별 패키지: `common`, `security`, `me`, `medication`, `intake`, `stats`.
+- 공개 API: `GET /api/v1/me`, 약 목록·추가·삭제(`GET/POST/DELETE /api/v1/medications`), 복용 기록 추가·취소(`PUT/DELETE /api/v1/medications/{id}/intakes/{date}`), 주간 통계(`GET /api/v1/stats/weekly`), Actuator health.
 - Supabase JWT는 JWKS에서 ES256 공개 키를 받아 서명, issuer, `authenticated` audience, 만료를 검증한다. JWT `sub`를 UUID 사용자 ID로 사용한다.
 - Hibernate는 스키마를 변경하지 않고 검증만 한다(`ddl-auto=validate`, `open-in-view=false`). 스키마 변경은 Flyway로만 한다.
 - 로컬 설정은 `backend/.env.example`을 참고한다. 실제 값은 `.env`/환경변수로 주입하며 비밀번호·키를 커밋하지 않는다.
