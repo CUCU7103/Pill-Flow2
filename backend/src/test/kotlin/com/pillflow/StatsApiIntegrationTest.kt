@@ -3,8 +3,9 @@ package com.pillflow
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
 import java.util.UUID
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
@@ -41,7 +42,8 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
             .andExpect(jsonPath("$.days[3].date").value("2026-09-22"))
             .andExpect(jsonPath("$.days[3].scheduled").value(0))
             .andExpect(jsonPath("$.days[3].taken").value(0))
-            .andExpect(jsonPath("$.days[3].rate").doesNotExist())
+            .andExpect(jsonPath("$.days[3]", hasKey("rate")))
+            .andExpect(jsonPath("$.days[3].rate").value(nullValue()))
             // 2026-09-23 수요일
             .andExpect(jsonPath("$.days[4].scheduled").value(1))
             // 2026-09-25 금요일
@@ -86,7 +88,33 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
             .andExpect(jsonPath("$.days[6].date").value("2026-09-25"))
             .andExpect(jsonPath("$.days[0].scheduled").value(0))
             .andExpect(jsonPath("$.days[0].taken").value(0))
-            .andExpect(jsonPath("$.days[0].rate").doesNotExist())
+            .andExpect(jsonPath("$.days[0]", hasKey("rate")))
+            .andExpect(jsonPath("$.days[0].rate").value(nullValue()))
+    }
+
+    @Test
+    fun `통계는 다른 사용자를 섞지 않고 3개 중 2개 복용률을 67로 반올림한다`() {
+        val user = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        addUser(user)
+        addUser(other)
+        repeat(3) { index ->
+            val medicationId = insertMedication(user, "내 약 $index", arrayOf("fri"), Instant.parse("2026-09-01T00:00:00Z"))
+            if (index < 2) insertLog(user, medicationId, "2026-09-25")
+        }
+        val otherMedicationId = insertMedication(other, "다른 사용자 약", arrayOf("fri"), Instant.parse("2026-09-01T00:00:00Z"))
+        insertLog(other, otherMedicationId, "2026-09-25")
+
+        mockMvc.perform(
+            get("/api/v1/stats/weekly")
+                .param("today", "2026-09-25")
+                .param("tz", "UTC")
+                .header("Authorization", authorization(user)),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.days[6].scheduled").value(3))
+            .andExpect(jsonPath("$.days[6].taken").value(2))
+            .andExpect(jsonPath("$.days[6].rate").value(67))
     }
 
     @Test
@@ -114,6 +142,12 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
         mockMvc.perform(
             get("/api/v1/stats/weekly")
                 .param("today", "2026-09-31")
+                .param("tz", "Asia/Seoul")
+                .header("Authorization", authorization),
+        ).andExpect(status().isBadRequest).andExpect(jsonPath("$.code").isString).andExpect(jsonPath("$.message").isString)
+        mockMvc.perform(
+            get("/api/v1/stats/weekly")
+                .param("today", "2026-9-25")
                 .param("tz", "Asia/Seoul")
                 .header("Authorization", authorization),
         ).andExpect(status().isBadRequest).andExpect(jsonPath("$.code").isString).andExpect(jsonPath("$.message").isString)

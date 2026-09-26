@@ -64,6 +64,32 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
     }
 
     @Test
+    fun `생략한 memo와 color는 기본값을 쓰고 약 목록은 생성일 순으로 정렬한다`() {
+        val userId = UUID.randomUUID()
+        addUser(userId)
+        val authorization = authorization(userId)
+        fun create(name: String) = mockMvc.perform(
+            post("/api/v1/medications")
+                .header("Authorization", authorization)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"$name","dosage":"1","times":["08:00"],"type":"tablet","days":["fri"]}"""),
+        ).andExpect(status().isCreated)
+
+        create("첫 약")
+        Thread.sleep(2)
+        create("둘째 약")
+
+        mockMvc.perform(get("/api/v1/medications").param("date", "2026-09-25").header("Authorization", authorization))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$[0].name").value("첫 약"))
+            .andExpect(jsonPath("$[0].memo").value(""))
+            .andExpect(jsonPath("$[0].color").value("#6C63FF"))
+            .andExpect(jsonPath("$[1].name").value("둘째 약"))
+            .andExpect(jsonPath("$[1].memo").value(""))
+            .andExpect(jsonPath("$[1].color").value("#6C63FF"))
+    }
+
+    @Test
     fun `intake PUT은 중복 호출해도 로그 하나만 만들고 없는 DELETE도 성공한다`() {
         val userId = UUID.randomUUID()
         addUser(userId)
@@ -105,16 +131,28 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
                 days = arrayOf("fri"),
             ),
         )
+        logs.saveAndFlush(
+            com.pillflow.intake.MedicationLog(
+                medicationId = medication.id!!,
+                userId = owner,
+                takenOn = java.time.LocalDate.parse("2026-09-25"),
+            ),
+        )
         val authorization = authorization(other)
         mockMvc.perform(get("/api/v1/medications").param("date", "2026-09-25").header("Authorization", authorization))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$").isEmpty)
+        mockMvc.perform(put("/api/v1/medications/${medication.id}/intakes/2026-09-25").header("Authorization", authorization))
+            .andExpect(status().isNotFound)
+            .andExpect(jsonPath("$.code").value("MEDICATION_NOT_FOUND"))
+        mockMvc.perform(delete("/api/v1/medications/${medication.id}/intakes/2026-09-25").header("Authorization", authorization))
+            .andExpect(status().isNotFound)
+            .andExpect(jsonPath("$.code").value("MEDICATION_NOT_FOUND"))
         mockMvc.perform(delete("/api/v1/medications/${medication.id}").header("Authorization", authorization))
             .andExpect(status().isNotFound)
             .andExpect(jsonPath("$.code").value("MEDICATION_NOT_FOUND"))
-        mockMvc.perform(put("/api/v1/medications/${medication.id}/intakes/2026-09-25").header("Authorization", authorization))
-            .andExpect(status().isNotFound)
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE medication_id=?", Int::class.java, medication.id))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE id=? AND user_id=?", Int::class.java, medication.id, owner))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE medication_id=? AND user_id=?", Int::class.java, medication.id, owner))
     }
 
     @Test
@@ -149,6 +187,7 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
         mockMvc.perform(delete("/api/v1/medications").header("Authorization", authorization(owner)))
             .andExpect(status().isNoContent)
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, owner))
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE user_id=?", Int::class.java, owner))
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, other))
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE user_id=?", Int::class.java, other))
     }
@@ -160,10 +199,14 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
             """{"name":" ","dosage":"1","times":["08:00"],"type":"tablet","days":["mon"]}""",
             """{"name":"약","dosage":" ","times":["08:00"],"type":"tablet","days":["mon"]}""",
             """{"name":"약","dosage":"1","times":[],"type":"tablet","days":["mon"]}""",
+            """{"name":"약","dosage":"1","times":["08:00","09:00","10:00","11:00","12:00"],"type":"tablet","days":["mon"]}""",
             """{"name":"약","dosage":"1","times":["25:00"],"type":"tablet","days":["mon"]}""",
+            """{"name":"약","dosage":"1","times":[null],"type":"tablet","days":["mon"]}""",
             """{"name":"약","dosage":"1","times":["08:00"],"type":"tablet","days":[]}""",
             """{"name":"약","dosage":"1","times":["08:00"],"type":"tablet","days":["monday"]}""",
+            """{"name":"약","dosage":"1","times":["08:00"],"type":"tablet","days":[null]}""",
             """{"name":"약","dosage":"1","times":["08:00"],"days":["mon"]}""",
+            """{"name":"약","dosage":"1","times":["08:00"],"type":1,"days":["mon"]}""",
         )
         invalidBodies.forEach { body ->
             mockMvc.perform(
@@ -189,6 +232,15 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
             .andExpect(status().isBadRequest)
         mockMvc.perform(delete("/api/v1/medications/not-a-uuid").header("Authorization", authorization))
             .andExpect(status().isBadRequest).andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+        val validId = UUID.randomUUID()
+        mockMvc.perform(put("/api/v1/medications/not-a-uuid/intakes/2026-09-25").header("Authorization", authorization))
+            .andExpect(status().isBadRequest).andExpect(jsonPath("$.code").isString).andExpect(jsonPath("$.message").isString)
+        mockMvc.perform(delete("/api/v1/medications/not-a-uuid/intakes/2026-09-25").header("Authorization", authorization))
+            .andExpect(status().isBadRequest).andExpect(jsonPath("$.code").isString).andExpect(jsonPath("$.message").isString)
+        mockMvc.perform(put("/api/v1/medications/$validId/intakes/not-a-date").header("Authorization", authorization))
+            .andExpect(status().isBadRequest).andExpect(jsonPath("$.code").isString).andExpect(jsonPath("$.message").isString)
+        mockMvc.perform(delete("/api/v1/medications/$validId/intakes/not-a-date").header("Authorization", authorization))
+            .andExpect(status().isBadRequest).andExpect(jsonPath("$.code").isString).andExpect(jsonPath("$.message").isString)
     }
 
     companion object {

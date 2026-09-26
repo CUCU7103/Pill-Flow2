@@ -77,23 +77,31 @@ class MedicationService(
         }
 
         val validatedTimes = times
-        if (validatedTimes == null || validatedTimes.size !in 1..4 || validatedTimes.any { !TIME_PATTERN.matches(it) }) {
+        if (validatedTimes == null || validatedTimes.size !in 1..4 || validatedTimes.any { it == null || !TIME_PATTERN.matches(it ?: "") }) {
             throw BusinessException(ErrorCode.INVALID_MEDICATION)
         }
 
         val validatedDays = days
-        if (validatedDays == null || validatedDays.isEmpty() || validatedDays.any { it !in VALID_DAYS }) {
+        if (validatedDays == null || validatedDays.isEmpty() || validatedDays.any { it == null || it !in VALID_DAYS }) {
             throw BusinessException(ErrorCode.INVALID_MEDICATION)
         }
+
+        val validatedType = type?.let { value ->
+            try {
+                MedicationType.valueOf(value)
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        } ?: throw BusinessException(ErrorCode.INVALID_MEDICATION)
 
         return ValidatedMedication(
             name = validatedName,
             dosage = validatedDosage,
             memo = memo ?: "",
-            times = validatedTimes,
-            type = type ?: throw BusinessException(ErrorCode.INVALID_MEDICATION),
+            times = validatedTimes.filterNotNull(),
+            type = validatedType,
             color = color ?: "#6C63FF",
-            days = validatedDays,
+            days = validatedDays.filterNotNull(),
         )
     }
 

@@ -4,10 +4,10 @@ data class MedicationRequest(
     val name: String? = null,
     val dosage: String? = null,
     val memo: String? = null,
-    val times: List<String>? = null,
-    val type: MedicationType? = null,
+    val times: List<String?>? = null,
+    val type: String? = null,
     val color: String? = null,
-    val days: List<String>? = null,
+    val days: List<String?>? = null,
 )
 
 data class MedicationResponse(
