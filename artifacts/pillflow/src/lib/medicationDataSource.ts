@@ -1,7 +1,8 @@
 import * as apiRepository from "@/lib/medicationApiRepository";
 import * as supabaseRepository from "@/lib/medicationRepository";
+import { isApiMode } from "@/lib/apiClient";
 
-const repository = import.meta.env.VITE_API_BASE_URL ? apiRepository : supabaseRepository;
+const repository = isApiMode ? apiRepository : supabaseRepository;
 
 export const fetchMedications = repository.fetchMedications;
 export const addMedication = repository.addMedication;

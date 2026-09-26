@@ -77,7 +77,7 @@ class MedicationService(
         }
 
         val validatedTimes = times
-        if (validatedTimes == null || validatedTimes.size !in 1..4 || validatedTimes.any { it == null || !TIME_PATTERN.matches(it ?: "") }) {
+        if (validatedTimes == null || validatedTimes.size !in 1..4 || validatedTimes.any { it == null || !TIME_PATTERN.matches(it) }) {
             throw BusinessException(ErrorCode.INVALID_MEDICATION)
         }
 

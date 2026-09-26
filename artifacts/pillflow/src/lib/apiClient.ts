@@ -1,6 +1,8 @@
 import { supabase } from "@/lib/supabase";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
+export const isApiMode = configuredApiBaseUrl.length > 0;
+const API_BASE_URL = configuredApiBaseUrl.replace(/\/+$/, "");
 export const DEFAULT_API_ERROR_MESSAGE = "요청 처리에 실패했습니다.";
 
 /** API 요청에 필요한 인증 헤더를 만든다. JSON 본문이 있을 때만 Content-Type을 추가한다. */

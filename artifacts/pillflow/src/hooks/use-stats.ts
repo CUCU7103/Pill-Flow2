@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { getToday, toLocalDateStr } from "@/lib/medicationMapper";
-import { apiRequest } from "@/lib/apiClient";
+import { apiRequest, isApiMode } from "@/lib/apiClient";
 import { dateToDayLabel, type WeeklyDataPoint } from "@/lib/statsUtils";
-
-const API_MODE = Boolean(import.meta.env.VITE_API_BASE_URL);
 
 /**
  * 주간 복약률과 연속 복용 일수(streak)를 계산하는 훅.
@@ -27,7 +25,7 @@ export function useStats(totalMeds: number, userId?: string) {
       }
 
       try {
-        if (API_MODE) {
+        if (isApiMode) {
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const response = await apiRequest<{ days: { date: string; rate: number | null }[] }>(
             `/api/v1/stats/weekly?today=${encodeURIComponent(getToday())}&tz=${encodeURIComponent(timezone)}`,

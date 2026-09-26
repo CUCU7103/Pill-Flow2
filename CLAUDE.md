@@ -48,18 +48,18 @@ cd artifacts/pillflow
 
 ### 환경변수
 
-`artifacts/pillflow/.env.local`에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`가 필요하다 (`artifacts/pillflow/.env.example` 참고). `VITE_API_BASE_URL`을 설정하면 약·복용·주간 통계 요청을 Kotlin API로 보내고, 비우면 기존 Supabase 직접 경로를 사용한다. 없으면 `src/lib/supabase.ts`가 import 시점에 throw한다.
+`artifacts/pillflow/.env.local`에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`가 필요하다 (`artifacts/pillflow/.env.example` 참고). 이 값들이 없으면 `src/lib/supabase.ts`가 import 시점에 throw한다. `VITE_API_BASE_URL`을 설정하면 약·복용·주간 통계 요청을 Kotlin API로 보내고, 비우면 기존 Supabase 직접 경로를 사용한다.
 
 ## 아키텍처
 
 ### 현재 데이터 흐름 (중요)
 
-로그인과 사진 분석은 Supabase를 사용한다. 약·복용·주간 통계 데이터는 `VITE_API_BASE_URL`이 있으면 JWT를 붙여 Kotlin API로 보내고, 없으면 롤백용 Supabase 직접 경로(supabase-js + RLS)를 사용한다.
+로그인과 사진 분석은 Supabase를 사용한다. 약·복용·주간 통계 데이터는 `VITE_API_BASE_URL`이 있으면 JWT를 붙여 Kotlin API로 보내고, 없으면 롤백용 Supabase 직접 경로(supabase-js + RLS)를 사용한다. Supabase 경로는 `medications.user_id`와 RLS 정책으로 사용자별 데이터를 격리하므로 insert 시 `user_id`를 반드시 넣어야 한다.
 
 ```
 App.tsx ─ useAuth (Google OAuth, Supabase Auth)
         └ useMedications(user.id) ─ lib/medicationDataSource.ts
-             ├ VITE_API_BASE_URL 있음 ─ apiClient.ts ─ Kotlin API
+             ├ VITE_API_BASE_URL 있음 ─ medicationApiRepository.ts ─ apiClient.ts ─ Kotlin API
              └ 없으면 ─ medicationRepository.ts ─ Supabase PostgREST
                                      └ lib/medicationMapper.ts (DB row → Medication)
 ```
@@ -109,6 +109,7 @@ Flyway 이력은 전용 `flyway` 스키마에 저장한다.
 - Vercel(웹) + AWS EC2(`api.pillflow.app`, Terraform `infra/terraform`, GitHub Actions `deploy.yml`).
 - 웹: Vercel이 `pnpm --filter @workspace/pillflow build`로 빌드, `artifacts/pillflow/dist/public` 서빙, 모든 경로를 `/index.html`로 rewrite (`vercel.json`).
 - Android: 같은 `dist/public`을 Capacitor `webDir`로 사용. `appId`(`com.pillflow.app`)는 변경 불가.
+- `VITE_API_BASE_URL`은 빌드 시점에 번들에 포함 — Vercel 환경변수와 Android 빌드 시 모두 설정해야 하며, 없으면 경고 없이 Supabase 경로로 동작한다.
 - 백엔드(`backend/`): `infra/terraform/{bootstrap,main}`이 EC2·ECR·SSM·IAM을 프로비저닝하고, `.github/workflows/deploy.yml`이 push/workflow_dispatch에서 이미지 빌드(backend 트리 해시 태그)·Flyway 마이그레이션·EC2 배포(SSM)·스모크 테스트를 수행한다. 운영 스크립트(`infra/scripts/put-secret.sh`, `flyway-baseline.sh`, `set-api-role-password.sh`)와 최초 가동 절차·롤백 방법은 `backend/README.md`의 "운영 배포" 절 참고. 2026-09-26 기준 이 절차는 아직 실행되지 않았다 — 운영 Supabase에는 2026-09-25 ALTER로 V1 스키마만 적용되어 있고, Flyway baseline(1)과 V2(`pillflow_api` role)는 미적용이다.
 
 ## 저장소 관례

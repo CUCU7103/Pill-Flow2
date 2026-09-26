@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from 
 import { useTheme } from "@/hooks/use-theme";
 import { useStats } from "@/hooks/use-stats";
 import { MedIcon } from "@/components/common/MedIcon";
+import { isApiMode } from "@/lib/apiClient";
 import { averageRate } from "@/lib/statsUtils";
 import type { Medication } from "@/types";
 
@@ -15,7 +16,8 @@ export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: bo
   // meaningful 0% result because there is no denominator yet.
   const hasStats = Boolean(userId && total > 0 && weeklyData.length > 0 && weeklyData.some((day) => day.rate !== null));
   const weekRate = hasStats ? averageRate(weeklyData) : null;
-  const chartData = weeklyData.map((entry) => ({ ...entry, rate: entry.rate ?? 0 }));
+  const chartData = weeklyData.map((entry) => ({ ...entry, rate: entry.rate ?? 0, hasScheduledMeds: entry.rate !== null }));
+  const basisLabel = isApiMode ? "그날 복용 예정인 약 기준" : `현재 등록된 약 ${total}개 기준`;
   const todayLabel = new Date().toLocaleDateString("ko-KR", { weekday: "short" }).replace("요일", "");
 
   return (
@@ -39,13 +41,13 @@ export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: bo
               <div>
                 <p className="text-sm font-bold text-pf-subtext">최근 7일 기록 비율</p>
                 <p className="text-5xl font-black tracking-tight mt-2" style={{ color: "var(--pf-accent)" }}>{weekRate}%</p>
-                <p className="text-xs text-pf-subtext mt-2">현재 등록된 약 {total}개 기준</p>
+                <p className="text-xs text-pf-subtext mt-2">{basisLabel}</p>
               </div>
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "var(--pf-accent-soft)", color: "var(--pf-accent)" }}>
                 <BarChart3 size={22} aria-hidden="true" />
               </div>
             </div>
-            <p className="mt-5 border-t border-pf-divider pt-4 text-sm leading-6 text-pf-subtext">각 날짜에 기록한 약의 수를 현재 등록된 약 {total}개와 비교한 값이에요.</p>
+            <p className="mt-5 border-t border-pf-divider pt-4 text-sm leading-6 text-pf-subtext">{isApiMode ? "각 날짜에 기록한 약의 수를 그날 복용 예정인 약 기준으로 계산한 값이에요." : `각 날짜에 기록한 약의 수를 현재 등록된 약 ${total}개와 비교한 값이에요.`}</p>
           </section>
         ) : (
           <section className="rounded-[28px] p-6 bg-pf-card border border-pf-divider" aria-label="통계 안내">
@@ -59,7 +61,7 @@ export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: bo
 
         <section className="rounded-[28px] p-5 bg-pf-card border border-pf-divider" aria-label="최근 7일 복용 차트">
           <div className="flex items-baseline justify-between gap-3 mb-5">
-            <div><h3 className="text-base font-black">주간 기록</h3>{hasStats && <p className="text-xs text-pf-subtext mt-1">최근 7일 · 현재 등록 약 {total}개 기준</p>}</div>
+            <div><h3 className="text-base font-black">주간 기록</h3>{hasStats && <p className="text-xs text-pf-subtext mt-1">최근 7일 · {isApiMode ? "그날 복용 예정인 약 기준" : `현재 등록 약 ${total}개 기준`}</p>}</div>
             {hasStats && <span className="text-xs font-bold text-pf-subtext">오늘 {todayLabel}</span>}
           </div>
           {hasStats ? (
@@ -67,7 +69,7 @@ export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: bo
               <BarChart data={chartData} barSize={24} margin={{ top: 4, right: 0, left: -24, bottom: 0 }}>
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: t.subtext, fontSize: 11, fontWeight: 700 }} />
                 <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: t.subtext, fontSize: 10 }} tickFormatter={(value) => `${value}%`} />
-                <Tooltip contentStyle={{ backgroundColor: t.card, border: `1px solid ${t.divider}`, borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }} labelStyle={{ color: t.text, fontWeight: 700 }} formatter={(value: number) => [`${value}%`, "기록 비율"]} cursor={{ fill: t.divider, radius: 8 }} />
+                <Tooltip contentStyle={{ backgroundColor: t.card, border: `1px solid ${t.divider}`, borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }} labelStyle={{ color: t.text, fontWeight: 700 }} formatter={(value: number, _name, item) => [item.payload?.hasScheduledMeds ? `${value}%` : "예정 없음", "기록 비율"]} cursor={{ fill: t.divider, radius: 8 }} />
                 <Bar dataKey="rate" radius={[8, 8, 8, 8]}>
                   {weeklyData.map((entry, index) => <Cell key={`${entry.day}-${index}`} fill={entry.day === todayLabel ? "var(--pf-accent)" : "var(--pf-accent-soft)"} />)}
                 </Bar>

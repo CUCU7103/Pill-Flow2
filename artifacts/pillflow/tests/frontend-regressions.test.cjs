@@ -111,6 +111,24 @@ test('API client requires a session and adds JSON content type only for JSON bod
   assert.equal(request.init.headers['Content-Type'], 'application/json');
 });
 
+test('medication API repository uses local dates and intake HTTP methods', async () => {
+  const calls = [];
+  const repository = load('lib/medicationApiRepository.ts', {
+    '@/lib/apiClient': { apiRequest: async (...args) => { calls.push(args); return []; } },
+    '@/lib/medicationMapper': { getToday: () => '2026-09-27' },
+  });
+
+  await repository.fetchMedications('user-1');
+  await repository.toggleMedicationLog('med-1', 'user-1', true);
+  await repository.toggleMedicationLog('med-1', 'user-1', false);
+
+  assert.deepEqual(calls, [
+    ['/api/v1/medications?date=2026-09-27'],
+    ['/api/v1/medications/med-1/intakes/2026-09-27', { method: 'DELETE' }],
+    ['/api/v1/medications/med-1/intakes/2026-09-27', { method: 'PUT' }],
+  ]);
+});
+
 test('weekly stats exclude null rates from averages and parse API dates in local calendar time', () => {
   const stats = load('lib/statsUtils.ts');
   assert.equal(stats.averageRate([{ day: '일', rate: null }, { day: '월', rate: 100 }, { day: '화', rate: 50 }]), 75);
