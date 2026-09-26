@@ -118,6 +118,7 @@ node_modules/
 # AI 도구 로컬 데이터 (개인 환경 전용)
 .taskmaster/
 .serena/
+.omc/
 supabase/.temp/
 
 # Terraform — 상태·변수·백엔드 설정은 공개 저장소에 올리지 않는다
