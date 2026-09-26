@@ -19,6 +19,7 @@ printf 'PGPASSWORD=%s\n' "$admin_pw" > "$pg_env"
 # Supabase는 log_statement=ddl이라 ALTER ROLE 문장이 서버 로그에 남는다.
 # 평문 대신 로컬에서 계산한 SCRAM-SHA-256 verifier만 보낸다(psql \password와 같은 방식).
 # new_pw는 프로세스 인자로 노출되지 않도록 stdin으로 python에 넘긴다.
+# shellcheck disable=SC2016 # 작은따옴표 안은 셸이 아닌 python 코드다
 verifier="$(printf '%s' "$new_pw" | python3 -c '
 import base64, hashlib, hmac, os, sys
 pw = sys.stdin.read().encode(); salt = os.urandom(16); it = 4096
