@@ -5,6 +5,9 @@ import org.hibernate.type.SqlTypes
 import org.hibernate.dialect.type.PostgreSQLEnumJdbcType
 import java.time.OffsetDateTime
 import java.util.UUID
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 
 enum class MedicationType { tablet, syrup, powder, ointment, drops, inhaler }
 @Entity @Table(name="medications", schema="public")
@@ -22,4 +25,16 @@ class Medication(
  @Column(name="updated_at", nullable=false) var updatedAt: OffsetDateTime? = null,
 )
  { @PrePersist fun onCreate() { val now = OffsetDateTime.now(); createdAt = now; updatedAt = now } }
-interface MedicationRepository : org.springframework.data.jpa.repository.JpaRepository<Medication, UUID>
+interface MedicationRepository : org.springframework.data.jpa.repository.JpaRepository<Medication, UUID> {
+    fun findAllByUserIdOrderByCreatedAtAsc(userId: UUID): List<Medication>
+
+    fun findByIdAndUserId(id: UUID, userId: UUID): java.util.Optional<Medication>
+
+    @Modifying
+    @Query("delete from Medication m where m.id = :id and m.userId = :userId")
+    fun deleteByIdAndUserId(@Param("id") id: UUID, @Param("userId") userId: UUID): Int
+
+    @Modifying
+    @Query("delete from Medication m where m.userId = :userId")
+    fun deleteAllByUserId(@Param("userId") userId: UUID): Int
+}

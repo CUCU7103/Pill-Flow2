@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.beans.TypeMismatchException
+import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.context.request.WebRequest
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler
 
@@ -15,7 +17,11 @@ enum class ErrorCode(val status: HttpStatus, val message: String) {
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다."),
-    INVALID_REQUEST(HttpStatus.BAD_REQUEST, "잘못된 요청입니다.")
+    INVALID_REQUEST(HttpStatus.BAD_REQUEST, "잘못된 요청입니다."),
+    INVALID_MEDICATION(HttpStatus.BAD_REQUEST, "약 정보가 올바르지 않습니다."),
+    INVALID_DATE(HttpStatus.BAD_REQUEST, "날짜 형식이 올바르지 않습니다."),
+    INVALID_TIMEZONE(HttpStatus.BAD_REQUEST, "시간대가 올바르지 않습니다."),
+    MEDICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "약을 찾을 수 없습니다.")
 }
 class BusinessException(val errorCode: ErrorCode) : RuntimeException(errorCode.message)
 data class ErrorResponse(val code: String, val message: String)
@@ -36,6 +42,20 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
         log.error("처리되지 않은 예외", ex)
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ErrorResponse(ErrorCode.INTERNAL_ERROR.name, ErrorCode.INTERNAL_ERROR.message))
     }
+
+    override fun handleHttpMessageNotReadable(
+        ex: HttpMessageNotReadableException,
+        headers: HttpHeaders,
+        statusCode: HttpStatusCode,
+        request: WebRequest,
+    ): ResponseEntity<Any>? = handleExceptionInternal(ex, null, headers, HttpStatus.BAD_REQUEST, request)
+
+    override fun handleTypeMismatch(
+        ex: TypeMismatchException,
+        headers: HttpHeaders,
+        statusCode: HttpStatusCode,
+        request: WebRequest,
+    ): ResponseEntity<Any>? = handleExceptionInternal(ex, null, headers, HttpStatus.BAD_REQUEST, request)
 
     override fun handleExceptionInternal(
         ex: Exception,
