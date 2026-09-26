@@ -35,12 +35,18 @@ resource "aws_instance" "api" {
   lifecycle {
     ignore_changes = [ami]
   }
+
+  # 라우팅이 준비되기 전에 부팅해 user_data(1회성)가 인터넷 연결 없이 실행되는 것을 막는다.
+  depends_on = [aws_route_table_association.public]
 }
 
 resource "aws_eip" "api" {
   domain   = "vpc"
   instance = aws_instance.api.id
   tags     = { Name = "pillflow-api" }
+
+  # IGW가 준비된 뒤에 EIP를 연결한다.
+  depends_on = [aws_internet_gateway.main]
 }
 
 # 하드웨어(시스템 상태 검사) 장애 시 EC2 자동 복구

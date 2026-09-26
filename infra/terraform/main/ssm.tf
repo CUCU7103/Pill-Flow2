@@ -41,9 +41,7 @@ resource "aws_ssm_parameter" "secret" {
   name        = each.key
   description = each.value
   type        = "SecureString"
-  value       = "CHANGE_ME"
-
-  lifecycle {
-    ignore_changes = [value]
-  }
+  # write-only 인자라 복호화된 값이 상태 파일에 저장되지 않는다; 실제 값은 put-secret.sh로 덮어쓴다.
+  value_wo         = "CHANGE_ME"
+  value_wo_version = 1
 }

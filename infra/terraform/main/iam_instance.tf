@@ -40,6 +40,14 @@ data "aws_iam_policy_document" "instance" {
     actions   = ["ssm:GetParametersByPath", "ssm:GetParameters", "ssm:GetParameter"]
     resources = ["${local.param_arn_prefix}/pillflow/prod/app", "${local.param_arn_prefix}/pillflow/prod/app/*"]
   }
+  # AmazonSSMManagedInstanceCore 관리형 정책이 ssm:GetParameter*를 Resource "*"에 허용하므로,
+  # migration 파라미터에 대해 명시적으로 Deny하여 AppParams 위 주석("읽을 수 없다")을 실제로 강제한다.
+  statement {
+    sid       = "DenyMigrationParams"
+    effect    = "Deny"
+    actions   = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+    resources = ["${local.param_arn_prefix}/pillflow/prod/migration", "${local.param_arn_prefix}/pillflow/prod/migration/*"]
+  }
   statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
