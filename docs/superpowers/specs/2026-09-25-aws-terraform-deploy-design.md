@@ -240,3 +240,16 @@ infra/terraform/
 - 외부 가용성 모니터링(업타임 체커), 알림 채널(Slack 등)
 - 사진 분석 Edge Function 이전(하위 프로젝트 4)
 - DB 백업 정책 (Supabase가 관리)
+
+## 부록: 구현 중 변경된 결정 (2026-09-26)
+
+구현과 리뷰 과정에서 원래 스펙에 없던 아래 결정들이 추가됐다. 원본 섹션은 고치지 않고 이 부록에 따로 기록한다.
+
+- **이미지 태그 = backend/ 디렉터리 트리 해시**: 커밋 SHA 대신 `git rev-parse <commit>:backend`로 태그를 계산한다. `backend/`가 바뀌지 않은 커밋은 같은 트리 해시를 그대로 재사용하므로, 빠른 연속 push에서 workflow_run의 headSha가 실제 배포 대상 커밋과 어긋나는 경합 없이 build/migrate 단계가 자연스럽게 무동작(이미지 이미 존재 → 빌드 생략, 적용할 마이그레이션 없음)이 된다.
+- **경로 기반 변경 감지 제거**: git diff로 backend 경로 변경 여부를 따로 판단하지 않는다. 자동 배포가 켜져 있으면 main에 성공한 CI push마다 파이프라인을 실행하되, 백엔드가 안 바뀐 경우는 위 트리 해시 재사용으로 build/migrate가 사실상 스킵된다.
+- **SecureString 파라미터는 write-only(`value_wo`) + `ignore_changes = all`**: `DB_PASSWORD`/`FLYWAY_PASSWORD`는 Terraform state에 복호화된 값이 남지 않도록 `value_wo`로 선언하고, `terraform apply`가 이 리소스를 다시 만지면 `value_wo`가 자리표시자 `CHANGE_ME`로 재적용되어 `put-secret.sh`로 넣어 둔 실값을 지워버리므로 `lifecycle { ignore_changes = all }`을 추가했다.
+- **EC2 역할에 마이그레이션 파라미터 명시적 Deny**: `AmazonSSMManagedInstanceCore`가 암묵적으로 허용하는 `/pillflow/prod/migration/*` 접근을, EC2 인스턴스 role의 IAM 정책에서 명시적 `Deny`로 다시 막는다. DDL 자격 증명(Flyway용 `postgres.<project-ref>`)은 GitHub 배포 role만 읽을 수 있어야 하기 때문이다.
+- **최초 부팅 네트워크 대기**: EC2 user_data가 부팅 직후 네트워크·DNS가 아직 준비되지 않은 상태에서 docker pull 등을 시도해 실패하는 경우를 막기 위해, 첫 부팅 스크립트에 네트워크 준비를 기다리는 대기 로직을 추가했다.
+- **deploy.sh 순서/따옴표 처리/롤백 env 동작**: `.env`(APP_IMAGE)를 먼저 쓴 뒤에만 app을 caddy보다 먼저 기동하고(.env 없이 compose를 부르면 실패), SSM에서 가져온 파라미터 값은 작은따옴표로 감싸 dotenv 파서가 `$`/`#`/공백을 리터럴로 보존하게 하며(작은따옴표·개행·후행 백슬래시가 든 값은 안전하게 표현할 수 없어 아무 것도 바꾸지 않고 중단), 배포 성공 시의 env를 `app.env.good`으로 별도 보관해 롤백은 이를 우선 복원한다(`app.env.prev`는 그 하위 호환 fallback).
+- **워크플로 job 타임아웃**: `changes`(5분)/`build`(30분)/`migrate`(15분)/`deploy`(20분)/`smoke`(5분) — 각 job에 `timeout-minutes`를 지정해 SSM 폴링이나 빌드가 무한정 걸리는 경우 전체 파이프라인이 막히지 않게 했다.
+- **workflow_dispatch는 main 한정**: 수동 실행도 `github.ref == 'refs/heads/main'`일 때만 진행되도록 `changes` job의 조건에 명시했다 — 다른 브랜치에서 운영 배포 role을 assume하는 경로를 원천 차단한다.

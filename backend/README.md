@@ -95,9 +95,10 @@ AWS EC2(`api.pillflow.app`) 인프라는 `infra/terraform`(Terraform), 배포 �
 
 배포 이미지 태그는 커밋 SHA가 아니라 **backend 디렉터리 트리 해시**(`git rev-parse <commit>:backend`)다. `backend/`가 바뀌지 않은 커밋은 같은 태그를 재사용하므로, 롤백 시에도 커밋 SHA가 아니라 이전에 실제 배포됐던 태그를 지정해야 한다.
 
-이전 태그를 찾는 방법:
-- EC2 인스턴스의 `/opt/pillflow/current_tag` 파일 이력(SSM 세션으로 접속해 확인), 또는
-- `aws ecr describe-images --repository-name pillflow-api`로 ECR에 저장된 이미지 태그 목록 확인.
+`/opt/pillflow/current_tag`는 **현재 배포된 태그 하나만** 담고 있으며 이력을 남기지 않는다. 이전 태그는 아래 방법으로 찾는다:
+- GitHub Actions의 `deploy` 워크플로 실행 로그(각 run의 `changes` job이 출력한 `tag`, `build`/`migrate`/`deploy` job에 쓰인 `TAG` 값).
+- SSM Run Command 이력의 comment 필드 — `send-deploy.sh`가 `--comment "pillflow deploy <tag>"`로 남기므로, AWS 콘솔의 SSM Run Command 히스토리나 `aws ssm list-commands --instance-id <id>`에서 확인할 수 있다.
+- `aws ecr describe-images --repository-name pillflow-api`로 ECR에 저장된 이미지 태그 목록(및 push 시각) 확인.
 
 이전 태그를 확인한 뒤:
 
@@ -106,6 +107,15 @@ gh workflow run deploy.yml --repo <owner>/<repo> --ref main -f image_tag=<이전
 ```
 
 `deploy.yml`의 `changes` job이 `image_tag` 입력값 형식(`^[A-Za-z0-9._-]{1,128}$`)을 검증하고, 유효하면 `build`를 건너뛴 채 해당 태그로 바로 `migrate`(적용할 변경이 없으면 무동작) → `deploy` → `smoke`를 수행한다.
+
+### 운영 시 유의사항
+
+- **EC2 인스턴스 교체**: `t4g.small` 인스턴스를 교체(재생성)하면 저장소 변수 `EC2_INSTANCE_ID`를 새 인스턴스 ID로 갱신해야 배포 워크플로가 올바른 인스턴스에 SSM Run Command를 보낸다. 인스턴스 로컬 디스크의 `/opt/pillflow/caddy-data`(Let's Encrypt 인증서)와 `/opt/pillflow/current_tag`는 함께 사라지므로, 교체 후 첫 배포에서 인증서가 재발급된다(Let's Encrypt 발급 한도에 유의).
+- **마이그레이션-먼저(migrate-before-deploy) 순서**: `deploy.yml`은 항상 `migrate`가 성공해야 `deploy`로 넘어가며, 마이그레이션은 새 이미지가 EC2에서 기동되기 *전에* DB에 적용된다. 즉 마이그레이션이 적용되는 시점에는 여전히 이전 버전 앱이 서비스 중이므로, 모든 Flyway 마이그레이션은 이전 앱 버전과 호환되어야 한다(expand/contract 패턴 — 컬럼 삭제/이름변경/NOT NULL 강제 같은 파괴적 변경은 이전 코드가 계속 동작하도록 먼저 "확장"만 하고, 이전 버전이 완전히 내려간 뒤 별도 배포에서 "축소"한다).
+- **GitHub OIDC 공급자 충돌**: 대상 AWS 계정에 GitHub Actions OIDC identity provider(`token.actions.githubusercontent.com`)가 이미 등록되어 있으면 `terraform apply`가 `EntityAlreadyExists` 오류로 실패한다. 이 경우 새로 만들지 말고 `terraform import`로 기존 provider를 가져온 뒤 apply한다.
+- **롤백 검증 절차**: 스펙 문서 `docs/superpowers/specs/2026-09-25-aws-terraform-deploy-design.md` §6 "완료 기준"의 롤백 항목대로, 헬스체크에 실패하는 태그를 수동으로 (`gh workflow run deploy.yml -f image_tag=<실패하는-태그>`) 배포해 파이프라인이 실패하고 이전 버전이 계속 서비스되는 것을 최소 1회 확인해야 한다.
+- **main push마다 migrate 실행**: `deploy.yml`은 자동 배포가 켜져 있으면 main에 push될 때마다(백엔드 변경 여부와 무관하게) DDL 자격 증명(`FLYWAY_USERNAME=postgres.<project-ref>`)으로 migrate 단계를 실행한다. 적용할 마이그레이션이 없으면 Flyway는 그냥 무동작(no-op)으로 끝난다.
+- **`set-api-role-password.sh` 실행 전 확인 사항**: 이 스크립트는 `ALTER ROLE pillflow_api PASSWORD '...'`를 실행한다. Supabase Postgres의 `log_statement` 설정(`none`/`ddl`/`mod`/`all`)에 따라 이 SQL문이 비밀번호 평문과 함께 서버 로그에 그대로 남을 수 있으므로, 실행 전에 반드시 현재 `log_statement` 값을 확인하고(`none` 또는 최소한 `ddl`이 로그에 SQL 텍스트를 포함하지 않는지) 필요하면 일시적으로 낮춰야 한다.
 
 ### 문제 해결
 
