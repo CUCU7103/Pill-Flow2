@@ -1,0 +1,157 @@
+# main 배포: 변경 감지 → arm64 이미지 빌드 → Flyway 마이그레이션 → EC2 교체(SSM) → 스모크 테스트
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "배포할 기존 이미지 태그(비우면 현재 커밋을 빌드)"
+        required: false
+        default: ""
+      migrate_only:
+        description: "마이그레이션만 실행(배포 생략)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  changes:
+    # 수동 실행이거나, 자동 배포가 켜져 있고 main push의 CI가 성공한 경우에만 진행한다.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.AUTO_DEPLOY_ENABLED == 'true' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      deploy: ${{ steps.detect.outputs.deploy }}
+      sha: ${{ steps.detect.outputs.sha }}
+      tag: ${{ steps.detect.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          INPUT_TAG: ${{ inputs.image_tag }}
+        run: |
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=${INPUT_TAG:-$HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # 마지막으로 성공한 배포 커밋 이후 변경을 본다(없으면 직전 커밋 기준).
+          base="$(gh run list --workflow deploy.yml --branch main --status success --limit 1 --json headSha --jq '.[0].headSha // empty')"
+          if [[ -z "$base" ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base="$HEAD_SHA^"; fi
+          if git diff --name-only "$base" "$HEAD_SHA" | grep -qE '^(backend/|infra/deploy/|\.github/workflows/deploy\.yml$)'; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true' && inputs.image_tag == ''
+    runs-on: ubuntu-24.04-arm
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: 이미지 빌드·push (이미 있으면 건너뜀 — 불변 태그 재실행 대비)
+        env:
+          REPO_URI: ${{ vars.ECR_REPOSITORY_URI }}
+          TAG: ${{ needs.changes.outputs.tag }}
+        run: |
+          if aws ecr describe-images --repository-name "${REPO_URI##*/}" --image-ids imageTag="$TAG" > /dev/null 2>&1; then
+            echo "이미지가 이미 존재함: $TAG — 빌드 생략"; exit 0
+          fi
+          docker build -t "$REPO_URI:$TAG" backend
+          docker push "$REPO_URI:$TAG"
+
+  migrate:
+    needs: [changes, build]
+    if: always() && needs.changes.outputs.deploy == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-24.04-arm
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Flyway 마이그레이션 (migrate 프로파일)
+        env:
+          REPO_URI: ${{ vars.ECR_REPOSITORY_URI }}
+          TAG: ${{ needs.changes.outputs.tag }}
+        run: |
+          env_file="$(mktemp)"; chmod 600 "$env_file"
+          trap 'rm -f "$env_file"' EXIT
+          aws ssm get-parameters-by-path --path /pillflow/prod/migration/ --with-decryption --output json \
+            | jq -r '.Parameters[] | "\(.Name | split("/") | last)=\(.Value)"' > "$env_file"
+          # 로그에 비밀번호가 찍히지 않도록 마스킹한다.
+          while IFS='=' read -r _ value; do echo "::add-mask::$value"; done < <(grep '^FLYWAY_PASSWORD=' "$env_file")
+          docker run --rm --env-file "$env_file" -e SPRING_PROFILES_ACTIVE=migrate "$REPO_URI:$TAG"
+
+  deploy:
+    needs: [changes, migrate]
+    if: always() && needs.migrate.result == 'success' && inputs.migrate_only != true
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: EC2 배포 (SSM Run Command)
+        run: infra/deploy/send-deploy.sh "${{ vars.EC2_INSTANCE_ID }}" "${{ vars.ECR_REPOSITORY_URI }}" "${{ needs.changes.outputs.tag }}"
+
+  smoke:
+    needs: deploy
+    if: always() && needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 헬스체크
+        run: |
+          for _ in $(seq 1 12); do
+            if curl -fsS https://api.pillflow.app/actuator/health | grep -q '"status":"UP"'; then echo "UP"; exit 0; fi
+            sleep 5
+          done
+          echo "스모크 테스트 실패"; exit 1
