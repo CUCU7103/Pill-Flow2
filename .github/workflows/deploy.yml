@@ -29,16 +29,21 @@ env:
 
 jobs:
   changes:
-    # 수동 실행이거나, 자동 배포가 켜져 있고 main push의 CI가 성공한 경우에만 진행한다.
+    # 수동 실행(main 한정)이거나, 자동 배포가 켜져 있고 main push의 CI가 성공한 경우에만 진행한다.
+    # 이 조건을 통과하면 항상 배포를 진행한다(deploy=true) — 마지막 성공 run의 headSha 기준
+    # git diff로 변경 여부를 가리는 방식은 workflow_run의 headSha가 "트리거 시점 main HEAD"라
+    # 실제 배포된 커밋과 다를 수 있어(migrate_only·image_tag 수동 실행도 성공으로 기록됨)
+    # 빠른 연속 push에서 백엔드 변경이 조용히 누락되는 경합이 있었다. 대신 이미지 태그를
+    # backend 트리 해시로 바꿔, 백엔드가 안 바뀐 실행은 build/migrate 단계 자체가
+    # 자연스럽게 아무 일도 하지 않도록(이미지 존재 → 빌드 생략) 한다.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (vars.AUTO_DEPLOY_ENABLED == 'true' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read
     outputs:
       deploy: ${{ steps.detect.outputs.deploy }}
       sha: ${{ steps.detect.outputs.sha }}
@@ -47,27 +52,27 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 0
       - id: detect
         env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           INPUT_TAG: ${{ inputs.image_tag }}
         run: |
           echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
-          echo "tag=${INPUT_TAG:-$HEAD_SHA}" >> "$GITHUB_OUTPUT"
-          if [[ "$EVENT" == "workflow_dispatch" ]]; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          # 마지막으로 성공한 배포 커밋 이후 변경을 본다(없으면 직전 커밋 기준).
-          base="$(gh run list --workflow deploy.yml --branch main --status success --limit 1 --json headSha --jq '.[0].headSha // empty')"
-          if [[ -z "$base" ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base="$HEAD_SHA^"; fi
-          if git diff --name-only "$base" "$HEAD_SHA" | grep -qE '^(backend/|infra/deploy/|\.github/workflows/deploy\.yml$)'; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          if [[ -n "$INPUT_TAG" ]]; then
+            # 수동으로 지정한 기존 이미지 태그 — 셸에 그대로 삽입되므로 형식을 검증한다.
+            if [[ ! "$INPUT_TAG" =~ ^[A-Za-z0-9._-]{1,128}$ ]]; then
+              echo "잘못된 image_tag 입력: $INPUT_TAG" >&2
+              exit 1
+            fi
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            # 태그 = backend 디렉토리 트리 해시(커밋 SHA 대신). backend/가 바뀌지 않은 push는
+            # 같은 트리 해시가 나와 build가 "이미지 이미 존재"로 건너뛰고, migrate는 적용할
+            # 변경이 없으며, deploy도 같은 이미지로 컨테이너가 유지된 채 compose.yml/Caddyfile
+            # 등 배포 스크립트 변경만 반영된다.
+            echo "tag=$(git rev-parse "$HEAD_SHA:backend")" >> "$GITHUB_OUTPUT"
           fi
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
 
   build:
     needs: changes
@@ -91,15 +96,21 @@ jobs:
           REPO_URI: ${{ vars.ECR_REPOSITORY_URI }}
           TAG: ${{ needs.changes.outputs.tag }}
         run: |
-          if aws ecr describe-images --repository-name "${REPO_URI##*/}" --image-ids imageTag="$TAG" > /dev/null 2>&1; then
+          set -o pipefail
+          if error="$(aws ecr describe-images --repository-name "${REPO_URI##*/}" --image-ids imageTag="$TAG" 2>&1 1>/dev/null)"; then
             echo "이미지가 이미 존재함: $TAG — 빌드 생략"; exit 0
+          elif [[ "$error" == *ImageNotFoundException* ]]; then
+            echo "이미지 없음: $TAG — 빌드 진행"
+          else
+            echo "$error" >&2
+            exit 1
           fi
           docker build -t "$REPO_URI:$TAG" backend
           docker push "$REPO_URI:$TAG"
 
   migrate:
     needs: [changes, build]
-    if: always() && needs.changes.outputs.deploy == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    if: "!cancelled() && needs.changes.outputs.deploy == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped')"
     runs-on: ubuntu-24.04-arm
     environment: production
     permissions:
@@ -116,6 +127,7 @@ jobs:
           REPO_URI: ${{ vars.ECR_REPOSITORY_URI }}
           TAG: ${{ needs.changes.outputs.tag }}
         run: |
+          set -o pipefail
           env_file="$(mktemp)"; chmod 600 "$env_file"
           trap 'rm -f "$env_file"' EXIT
           aws ssm get-parameters-by-path --path /pillflow/prod/migration/ --with-decryption --output json \
@@ -126,7 +138,7 @@ jobs:
 
   deploy:
     needs: [changes, migrate]
-    if: always() && needs.migrate.result == 'success' && inputs.migrate_only != true
+    if: "!cancelled() && needs.migrate.result == 'success' && inputs.migrate_only != true"
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -141,17 +153,21 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: EC2 배포 (SSM Run Command)
-        run: infra/deploy/send-deploy.sh "${{ vars.EC2_INSTANCE_ID }}" "${{ vars.ECR_REPOSITORY_URI }}" "${{ needs.changes.outputs.tag }}"
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          REPO_URI: ${{ vars.ECR_REPOSITORY_URI }}
+          TAG: ${{ needs.changes.outputs.tag }}
+        run: infra/deploy/send-deploy.sh "$INSTANCE_ID" "$REPO_URI" "$TAG"
 
   smoke:
     needs: deploy
-    if: always() && needs.deploy.result == 'success'
+    if: "!cancelled() && needs.deploy.result == 'success'"
     runs-on: ubuntu-latest
     steps:
       - name: 헬스체크
         run: |
           for _ in $(seq 1 12); do
-            if curl -fsS https://api.pillflow.app/actuator/health | grep -q '"status":"UP"'; then echo "UP"; exit 0; fi
+            if curl -fsS --max-time 10 https://api.pillflow.app/actuator/health | grep -q '"status":"UP"'; then echo "UP"; exit 0; fi
             sleep 5
           done
           echo "스모크 테스트 실패"; exit 1
