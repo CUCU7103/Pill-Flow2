@@ -2,39 +2,53 @@
 @import "tw-animate-css";
 
 @theme inline {
-  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
 
   /* 커스텀 색상 토큰 */
-  --color-accent: #6C63FF;
-  --color-accent-light: #9B8FFF;
-  --color-accent-hover: #5A52E0;
-  --color-danger: #FF6584;
-  --color-success: #06D6A0;
-  --color-warning: #FFD166;
-  --color-info: #4FACFE;
+  --color-accent: #1B64DA;
+  --color-accent-light: #EAF3FF;
+  --color-accent-hover: #1B64DA;
+  --color-danger: #D64545;
+  --color-success: #18845A;
+  --color-warning: #A05A00;
+  --color-info: #3182F6;
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
-    --pf-bg: #F5F7FF;
+    --pf-bg: #F7F8FA;
     --pf-card: #FFFFFF;
-    --pf-surface: #F9FAFB;
-    --pf-text: #111827;
-    --pf-subtext: #6B7280;
-    --pf-divider: #F3F4F6;
-    --pf-nav-bg: rgba(255,255,255,0.95);
+    --pf-surface: #F2F4F6;
+    --pf-text: #191F28;
+    --pf-subtext: #6B7684;
+    --pf-divider: #E5E8EB;
+    --pf-nav-bg: rgba(255,255,255,0.97);
+    --pf-accent: #1B64DA;
+    --pf-action: #1B64DA;
+    --pf-accent-strong: #1B64DA;
+    --pf-accent-soft: #EAF3FF;
+    --pf-success: #18845A;
+    --pf-warning: #A05A00;
+    --pf-danger: #D64545;
   }
 
   .dark {
-    --pf-bg: #0D1117;
-    --pf-card: #161B22;
-    --pf-surface: #111827;
-    --pf-text: #F0F6FC;
-    --pf-subtext: #8B949E;
-    --pf-divider: #21262D;
-    --pf-nav-bg: rgba(22,27,34,0.95);
+    --pf-bg: #101720;
+    --pf-card: #1B2530;
+    --pf-surface: #273340;
+    --pf-text: #F2F5F8;
+    --pf-subtext: #AAB6C3;
+    --pf-divider: #3A4653;
+    --pf-nav-bg: rgba(27,37,48,0.97);
+    --pf-accent: #79B2FF;
+    --pf-action: #1B64DA;
+    --pf-accent-strong: #9CC6FF;
+    --pf-accent-soft: #203D63;
+    --pf-success: #75D6AD;
+    --pf-warning: #F2B761;
+    --pf-danger: #FF8B8B;
   }
 
   html, body, #root {
@@ -42,10 +56,18 @@
   }
 
   body {
-    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
     -webkit-font-smoothing: antialiased;
     background-color: var(--pf-bg);
     color: var(--pf-text);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

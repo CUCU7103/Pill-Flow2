@@ -1,22 +1,27 @@
-import { motion } from "framer-motion";
-
-/** 토글 스위치 컴포넌트 */
-export function Toggle({ on, onToggle, disabled = false }: { on: boolean; onToggle: () => void; disabled?: boolean }) {
+/** 접근 가능한 설정 스위치. */
+export function Toggle({
+  on,
+  onToggle,
+  ariaLabel,
+  disabled = false,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  ariaLabel: string;
+  disabled?: boolean;
+}) {
   return (
     <button
+      type="button"
       onClick={onToggle}
       role="switch"
+      aria-label={ariaLabel}
       aria-checked={on}
       disabled={disabled}
-      aria-disabled={disabled}
-      className="relative w-12 h-6 rounded-full transition-colors duration-300"
-      style={{ backgroundColor: on ? "#6C63FF" : "#E5E7EB", opacity: disabled ? 0.4 : 1 }}
+      className="relative flex h-11 w-12 shrink-0 items-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pf-accent)] disabled:opacity-40"
     >
-      <motion.span
-        className="absolute top-1 w-4 h-4 bg-white rounded-full shadow"
-        animate={{ left: on ? "26px" : "4px" }}
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-      />
+      <span className="h-7 w-12 rounded-full transition-colors" style={{ backgroundColor: on ? "var(--pf-action)" : "var(--pf-divider)" }} />
+      <span className="absolute left-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform" style={{ transform: on ? "translateX(20px)" : "none" }} />
     </button>
   );
 }

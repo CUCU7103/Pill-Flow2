@@ -15,7 +15,6 @@ const ICONS: Record<AnalyzeStatus, string> = {
 export function PhotoAnalyzeBadge({
   status,
   message,
-  dark,
 }: {
   status: AnalyzeStatus;
   message: string;
@@ -24,12 +23,9 @@ export function PhotoAnalyzeBadge({
   // 진행 중인 상태 여부 판별 (스피너 표시 기준)
   const isActive = status === "uploading" || status === "analyzing" || status === "slow";
 
-  // 다크모드 여부에 따라 배경·텍스트·테두리 색상 결정
-  // -- 배경·테두리는 반투명이라 Tailwind arbitrary RGBA 값 사용
-  // -- 텍스트는 CSS 변수(--color-accent) 또는 light-purple(#A5B4FC) arbitrary value 사용
-  const bgColorClass = dark ? "bg-[rgba(108,99,255,0.18)]" : "bg-[rgba(108,99,255,0.10)]";
-  const textColorClass = dark ? "text-[#A5B4FC]" : "text-[var(--color-accent)]";
-  const borderColorClass = dark ? "border-[rgba(108,99,255,0.35)]" : "border-[rgba(108,99,255,0.25)]";
+  const bgColorClass = "bg-[var(--pf-accent-soft)]";
+  const textColorClass = "text-[var(--pf-accent)]";
+  const borderColorClass = "border-[var(--pf-divider)]";
 
   return (
     <AnimatePresence>

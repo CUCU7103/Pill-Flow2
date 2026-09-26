@@ -70,7 +70,7 @@ export function TimePicker({
         animate={{ scale: 1 }}
       >
         <div className="text-center">
-          <h3 className="text-xl font-bold text-[#6C63FF]">시간 설정</h3>
+          <h3 className="text-xl font-bold text-[var(--pf-accent)]">시간 설정</h3>
           <p className="text-xs mt-1" style={{ color: t.subtext }}>
             복용 시간을 직접 입력하세요
           </p>
@@ -90,7 +90,7 @@ export function TimePicker({
               aria-checked={ampm === v}
               className="flex-1 py-3 rounded-xl font-bold text-sm transition-all"
               style={{
-                backgroundColor: ampm === v ? "#6C63FF" : "transparent",
+                backgroundColor: ampm === v ? "var(--pf-action)" : "transparent",
                 color: ampm === v ? "#fff" : t.subtext,
               }}
             >
@@ -107,8 +107,8 @@ export function TimePicker({
               value={h}
               onChange={(e) => setH(e.target.value.replace(/\D/g, "").slice(0, 2))}
               aria-label="시"
-              className="w-20 h-20 text-center text-4xl font-black rounded-3xl outline-none focus:ring-2 focus:ring-[#6C63FF]"
-              style={{ backgroundColor: t.surface, color: "#6C63FF" }}
+              className="w-20 h-20 text-center text-4xl font-black rounded-3xl outline-none focus:ring-2 focus:ring-[var(--pf-accent)]"
+              style={{ backgroundColor: t.surface, color: "var(--pf-accent)" }}
             />
             <span
               className="text-[10px] font-bold uppercase tracking-widest"
@@ -117,7 +117,7 @@ export function TimePicker({
               시
             </span>
           </div>
-          <span className="text-4xl font-bold text-[#6C63FF] mb-6">:</span>
+          <span className="text-4xl font-bold text-[var(--pf-accent)] mb-6">:</span>
           <div className="flex flex-col items-center gap-2">
             <input
               type="text"
@@ -125,8 +125,8 @@ export function TimePicker({
               value={m}
               onChange={(e) => setM(e.target.value.replace(/\D/g, "").slice(0, 2))}
               aria-label="분"
-              className="w-20 h-20 text-center text-4xl font-black rounded-3xl outline-none focus:ring-2 focus:ring-[#6C63FF]"
-              style={{ backgroundColor: t.surface, color: "#6C63FF" }}
+              className="w-20 h-20 text-center text-4xl font-black rounded-3xl outline-none focus:ring-2 focus:ring-[var(--pf-accent)]"
+              style={{ backgroundColor: t.surface, color: "var(--pf-accent)" }}
             />
             <span
               className="text-[10px] font-bold uppercase tracking-widest"
@@ -147,7 +147,7 @@ export function TimePicker({
           <button
             onClick={confirm}
             className="flex-1 py-4 rounded-2xl font-bold text-sm text-white min-h-[48px]"
-            style={{ backgroundColor: "#6C63FF" }}
+            style={{ backgroundColor: "var(--pf-action)" }}
           >
             확인
           </button>

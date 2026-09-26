@@ -1,20 +1,17 @@
-import { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Settings, Plus, CheckCircle2, Trash2, Flame,
-} from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
+import { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { Settings, CheckCircle2, Clock3 } from "lucide-react";
 import { MedIcon } from "@/components/common/MedIcon";
-import { DeleteModal } from "@/components/modals/DeleteModal";
 import { MedicationDetailModal } from "@/components/modals/MedicationDetailModal";
+import { DeleteModal } from "@/components/modals/DeleteModal";
 import { formatMedicationTime } from "@/lib/notificationSchedule";
-import { getTimeCategory, TIME_CATEGORY_LABEL } from "@/lib/timeCategory";
 import type { Medication, NotifCategories } from "@/types";
 import { NotificationPopover } from "@/components/NotificationPopover";
 
 /** 오늘의 복용 현황 화면 */
 export function TodayView({
   meds,
+  allMeds,
   onToggle,
   onDelete,
   onAddClick,
@@ -24,8 +21,10 @@ export function TodayView({
   onToggleNotif,
   categories,
   onToggleCategory,
+  hasAnyMeds,
 }: {
   meds: Medication[];
+  allMeds: Medication[];
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onAddClick: () => void;
@@ -35,12 +34,20 @@ export function TodayView({
   onToggleNotif: () => void;
   categories: NotifCategories;
   onToggleCategory: (key: keyof NotifCategories) => void;
+  hasAnyMeds: boolean;
 }) {
-  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [detailMed, setDetailMed] = useState<Medication | null>(null);
-  const t = useTheme(dark);
-  const completed = meds.filter((m) => m.completed).length;
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showAllMeds, setShowAllMeds] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const reduceMotion = useReducedMotion();
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const completed = meds.filter((med) => med.completed).length;
   const total = meds.length;
+  const remaining = total - completed;
   const progress = total === 0 ? 0 : Math.round((completed / total) * 100);
   const today = new Date().toLocaleDateString("ko-KR", {
     month: "long",
@@ -48,54 +55,35 @@ export function TodayView({
     weekday: "long",
   });
 
-  // 첫 번째 복용 시간 기준으로 시간대 판별 (timeCategory.ts 단일 진실 소스 사용)
-  function getMedTimeGroup(times: string[]) {
-    if (!times || times.length === 0) return "morning" as const;
-    const hour = parseInt(times[0].split(":")[0], 10);
-    return getTimeCategory(hour);
-  }
-
-  // 시간대별 그룹핑 (useMemo로 불필요한 재계산 방지)
-  const groups = useMemo(
-    () => ({
-      [TIME_CATEGORY_LABEL.morning]: meds.filter((m) => getMedTimeGroup(m.times) === "morning"),
-      [TIME_CATEGORY_LABEL.lunch]: meds.filter((m) => getMedTimeGroup(m.times) === "lunch"),
-      [TIME_CATEGORY_LABEL.evening]: meds.filter((m) => getMedTimeGroup(m.times) === "evening"),
-    }),
+  // The API stores completion per medication/day. Sort medication cards by their
+  // first scheduled time without suggesting each individual time is actionable.
+  const schedule = useMemo(
+    () => [...(showAllMeds ? allMeds : meds)].sort((a, b) => (a.times[0] ?? "99:99").localeCompare(b.times[0] ?? "99:99")),
+    [allMeds, meds, showAllMeds],
+  );
+  const todaySchedule = useMemo(
+    () => [...meds].sort((a, b) => (a.times[0] ?? "99:99").localeCompare(b.times[0] ?? "99:99")),
     [meds],
   );
+  const todayMedIds = useMemo(() => new Set(meds.map((med) => med.id)), [meds]);
+
+  const nextDose = useMemo(() => {
+    const current = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    return todaySchedule
+      .flatMap((med) => med.times.map((time) => ({ med, time })))
+      .filter(({ med, time }) => !med.completed && time >= current)
+      .sort((a, b) => a.time.localeCompare(b.time))[0] ?? null;
+  }, [todaySchedule, now]);
 
   return (
-    <div className="h-full overflow-y-auto hide-scrollbar" style={{ backgroundColor: t.bg }}>
-      <div className="max-w-md mx-auto px-5 pt-14 pb-32">
-        {/* 헤더 */}
-        <header className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-              style={{ background: "linear-gradient(135deg,#6C63FF,#9B8FFF)" }}
-            >
-              A
-            </div>
-            <div>
-              <p
-                className="text-[10px] font-bold tracking-widest uppercase"
-                style={{ color: "#6C63FF" }}
-              >
-                {today}
-              </p>
-              <h1
-                className="text-xl font-extrabold leading-tight"
-                style={{
-                  // Android WebView는 background-clip: text 미지원 → 단색으로 처리
-                  color: dark ? "#C4B5FD" : "#6C63FF",
-                }}
-              >
-                필플로우
-              </h1>
-            </div>
+    <div className="h-full overflow-y-auto hide-scrollbar bg-pf-bg text-pf-text">
+      <div className="max-w-md mx-auto px-4 sm:px-5 pt-8 sm:pt-12 pb-32">
+        <header className="flex items-center justify-between mb-7">
+          <div>
+            <p className="text-xs font-semibold text-pf-subtext">{today}</p>
+            <h1 className="text-2xl font-extrabold tracking-tight mt-1 leading-tight">{total === 0 ? "오늘의 복약" : remaining === 0 ? "오늘 복용을 마쳤어요" : <>오늘 복용할 약,<br />{remaining}개 남았어요</>}</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <NotificationPopover
               dark={dark}
               notifEnabled={notifEnabled}
@@ -106,237 +94,98 @@ export function TodayView({
             <button
               onClick={onOpenSettings}
               aria-label="설정 열기"
-              className="w-10 h-10 rounded-full shadow-sm flex items-center justify-center min-w-[44px] min-h-[44px]"
-              style={{ backgroundColor: t.card }}
+              className="w-11 h-11 rounded-full flex items-center justify-center bg-pf-card text-pf-subtext shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <Settings size={17} style={{ color: t.subtext }} />
+              <Settings size={18} />
             </button>
           </div>
         </header>
 
-        {/* 달성률 히어로 */}
-        <section
-          className="rounded-3xl p-6 mb-5 relative overflow-hidden"
-          style={{ background: "linear-gradient(135deg,#6C63FF 0%,#4FACFE 100%)" }}
-          aria-label="오늘의 달성률"
-        >
-          <div className="relative z-10">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-white/70 text-[10px] font-bold uppercase tracking-widest mb-1">
-                  오늘의 달성률
-                </p>
-                <div className="flex items-end gap-1">
-                  <motion.span
-                    className="text-white text-6xl font-black tracking-tighter"
-                    key={progress}
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    {progress}
-                  </motion.span>
-                  <span className="text-white/80 text-2xl font-bold mb-2">%</span>
-                </div>
-                <p className="text-white/80 text-sm font-medium mt-1">
-                  {progress === 100
-                    ? "오늘 모든 약을 복용했어요!"
-                    : `아직 ${total - completed}개가 남았어요`}
-                </p>
-              </div>
+        <section className="rounded-[22px] p-5 sm:p-6 mb-6 bg-[var(--pf-accent-soft)] text-pf-text" aria-label="오늘의 복약 요약">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+            <p className="text-sm font-semibold text-pf-subtext">오늘 약 복용 기록</p>
+            <p className="mt-2 text-2xl font-extrabold tracking-tight"><span className="text-[var(--pf-accent)]">{completed}개 완료</span><span className="text-pf-subtext"> / 총 {total}개</span></p>
             </div>
-            <div className="mt-5 h-2 bg-white/20 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-white rounded-full"
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.7, ease: "easeOut" }}
-              />
-            </div>
-            <div className="flex justify-between mt-2">
-              <span className="text-white/60 text-[11px] font-medium">
-                {completed}/{total} 복용
-              </span>
-              <span className="text-white/60 text-[11px] font-medium flex items-center gap-1">
-                연속 7일 <Flame size={12} className="text-orange-300" />
-              </span>
+            <div className="text-right">
+              <p className="text-2xl font-extrabold">{remaining}</p>
+              <p className="text-xs font-medium text-pf-subtext">남은 약</p>
             </div>
           </div>
+          <div className="h-2 mt-5 rounded-full bg-pf-card overflow-hidden" role="progressbar" aria-label="오늘 복약 완료율" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+            <motion.div className="h-full rounded-full bg-[var(--pf-accent)]" animate={{ width: `${progress}%` }} transition={{ duration: reduceMotion ? 0 : 0.25 }} />
+          </div>
+          <p className="text-sm text-pf-subtext mt-3">{total === 0 ? "오늘 예정된 복용이 없어요." : remaining === 0 ? "오늘의 복용을 모두 기록했어요." : "차근차근 기록하고 있어요."}</p>
+          <p className="text-xs leading-5 text-pf-subtext mt-2">완료 기록 1회는 오늘 하루 전체 복용을 뜻해요. 같은 약의 여러 복용 시간은 따로 체크하지 않아요.</p>
         </section>
 
-        {/* 약 목록 */}
-        {Object.entries(groups).map(([label, items]) => {
-          if (items.length === 0) return null;
-          return (
-            <section key={label} className="mb-6" aria-label={`${label} 복용약`}>
-              <div className="flex items-center gap-3 mb-3">
-                <h3
-                  className="text-sm font-bold uppercase tracking-widest"
-                  style={{ color: t.text }}
-                >
-                  {label}
-                </h3>
-                <div className="flex-1 h-px" style={{ backgroundColor: t.divider }} />
-                <span className="text-[11px] font-semibold" style={{ color: t.subtext }}>
-                  {items.filter((m) => m.completed).length}/{items.length}
-                </span>
+        {nextDose ? (
+          <section className="rounded-2xl p-4 mb-7 bg-pf-card border border-pf-divider shadow-sm" aria-label="다음 복용 예정">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-accent/10 text-accent flex items-center justify-center shrink-0"><Clock3 size={19} /></div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-pf-subtext">다음 복용 예정</p>
+                <p className="font-bold truncate mt-0.5">{formatMedicationTime(nextDose.time)} · {nextDose.med.name}</p>
               </div>
-              <div className="space-y-3">
-                {items.map((med) => (
-                  <motion.div
-                    key={med.id}
-                    layout
-                    className="rounded-xl p-4 shadow-sm flex items-center gap-4"
-                    style={{
-                      backgroundColor: t.card,
-                      opacity: med.completed ? 0.6 : 1,
-                    }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setDetailMed(med)}
-                      aria-label={`${med.name} 상세정보 열기`}
-                      className="flex-shrink-0 active:scale-95 transition-transform rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-400"
-                    >
-                      <MedIcon type={med.type} color={med.color} />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      {/* 약 이름 */}
-                      <div className="flex items-center gap-2">
-                        <h4
-                          className="font-bold text-base truncate"
-                          style={{
-                            color: med.completed ? t.subtext : t.text,
-                            textDecoration: med.completed ? "line-through" : "none",
-                          }}
-                        >
-                          {med.name}
-                        </h4>
-                      </div>
-                      {/* 복용 시간 칩들 */}
-                      {med.times && med.times.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {med.times.map((t_time) => (
-                            <span
-                              key={t_time}
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                              style={{
-                                backgroundColor: dark ? "rgba(108,99,255,0.18)" : "rgba(108,99,255,0.10)",
-                                color: "#6C63FF",
-                              }}
-                            >
-                              {formatMedicationTime(t_time)}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {/* 용량 · 메모 */}
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs font-medium" style={{ color: t.subtext }}>
-                          {med.dosage}
-                        </span>
-                        {med.memo ? (
-                          <span className="text-xs truncate" style={{ color: t.subtext }}>
-                            {med.memo}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0 self-center">
-                      <button
-                        onClick={() => setDeleteId(med.id)}
-                        aria-label={`${med.name} 삭제`}
-                        className="flex-shrink-0 w-11 h-11 rounded-full border shadow-sm active:scale-95 transition-transform flex items-center justify-center"
-                        style={{
-                          backgroundColor: dark ? "rgba(248,113,113,0.14)" : "rgba(248,113,113,0.10)",
-                          borderColor: dark ? "rgba(248,113,113,0.28)" : "rgba(248,113,113,0.22)",
-                          color: "#EF4444",
-                        }}
-                      >
-                        <Trash2 size={16} strokeWidth={2.4} />
-                      </button>
-                      <button
-                        onClick={() => onToggle(med.id)}
-                        aria-label={`${med.name} ${med.completed ? "복용 취소" : "복용 완료"}`}
-                        className="flex-shrink-0 active:scale-90 transition-transform min-w-[48px] min-h-[48px] flex items-center justify-center"
-                      >
-                        {med.completed ? (
-                          <div
-                            className="w-11 h-11 rounded-full flex items-center justify-center shadow-md"
-                            style={{
-                              background: "linear-gradient(135deg,#6C63FF,#9B8FFF)",
-                              boxShadow: "0 10px 24px rgba(108,99,255,0.24)",
-                            }}
-                          >
-                            <CheckCircle2 size={24} className="text-white" fill="#6C63FF" strokeWidth={2.6} />
-                          </div>
-                        ) : (
-                          <div
-                            className="w-11 h-11 rounded-full border-2 flex items-center justify-center shadow-sm"
-                            style={{
-                              backgroundColor: dark ? "rgba(108,99,255,0.16)" : "rgba(108,99,255,0.10)",
-                              borderColor: dark ? "rgba(108,99,255,0.45)" : "rgba(108,99,255,0.55)",
-                              boxShadow: dark ? "0 0 0 4px rgba(108,99,255,0.10)" : "0 0 0 4px rgba(108,99,255,0.06)",
-                            }}
-                          >
-                            <div
-                              className="w-4 h-4 rounded-full"
-                              style={{ backgroundColor: dark ? "rgba(108,99,255,0.85)" : "#6C63FF" }}
-                            />
-                          </div>
-                        )}
-                      </button>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </section>
-          );
-        })}
+            </div>
+          </section>
+        ) : remaining > 0 ? (
+          <p className="mb-7 rounded-2xl border border-pf-divider bg-pf-card p-4 text-sm text-pf-subtext">예정 시간이 지난 약이 있어요. 아래 일정에서 확인해 주세요.</p>
+        ) : null}
 
-        {meds.length === 0 && (
-          <div className="text-center py-16">
-            <div className="text-5xl mb-4">💊</div>
-            <p className="font-bold text-lg" style={{ color: t.text }}>
-              등록된 약이 없어요
-            </p>
-            <p className="text-sm mt-1" style={{ color: t.subtext }}>
-              + 버튼으로 약을 추가해보세요
-            </p>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-bold">복용 일정</h2>
+          {allMeds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAllMeds((visible) => !visible)}
+              aria-pressed={showAllMeds}
+              className="min-h-10 rounded-xl px-3 text-xs font-bold text-[var(--pf-accent)] bg-accent/10 focus-visible:outline-2 focus-visible:outline-[var(--pf-accent)]"
+            >
+              {showAllMeds ? "오늘 일정만" : "전체 약 보기"}
+            </button>
+          )}
+        </div>
+
+        {showAllMeds && <p className="mb-3 text-xs leading-5 text-pf-subtext">전체 약 목록에서는 상세 확인과 삭제를 할 수 있어요. 오늘 복용일이 아닌 약은 완료 기록을 남길 수 없어요.</p>}
+
+        {schedule.length > 0 ? (
+          <div className="space-y-3" aria-label="복용 일정 목록">
+            {schedule.map((med) => (
+              <motion.article key={med.id} layout={!reduceMotion} className="rounded-2xl p-4 bg-pf-card border border-pf-divider flex items-center gap-3">
+                <button type="button" onClick={() => setDetailMed(med)} aria-label={`${med.name} 상세정보 열기`} className="shrink-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                  <MedIcon type={med.type} color={med.color} />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold truncate">{med.name}</h3>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {med.times.length > 0 ? med.times.map((time) => <span key={time} className="text-xs font-semibold px-2 py-1 rounded-lg bg-accent/10 text-accent">{formatMedicationTime(time)}</span>) : <span className="text-xs text-pf-subtext">복용 시간 미설정</span>}
+                  </div>
+                  <p className="text-xs text-pf-subtext truncate mt-1.5">{med.dosage}{med.memo ? ` · ${med.memo}` : ""}</p>
+                </div>
+                {todayMedIds.has(med.id) ? (
+                  <button type="button" onClick={() => onToggle(med.id)} aria-label={`${med.name} ${med.completed ? "오늘 복용 기록 취소" : "오늘 복용 완료 기록"}`} className={med.completed ? "shrink-0 min-h-11 px-3 rounded-xl flex items-center gap-1.5 text-xs font-bold text-[var(--pf-success)] focus-visible:outline-2 focus-visible:outline-[var(--pf-accent)]" : "shrink-0 min-h-11 px-3 rounded-xl flex items-center gap-1.5 text-xs font-bold bg-[var(--pf-action)] text-white focus-visible:outline-2 focus-visible:outline-[var(--pf-accent)]"}>
+                    {med.completed ? <><CheckCircle2 size={17} /> 오늘 기록 취소</> : "오늘 복용 완료"}
+                  </button>
+                ) : (
+                  <span className="shrink-0 max-w-24 text-right text-[11px] leading-4 font-semibold text-pf-subtext">오늘 복용일 아님</span>
+                )}
+              </motion.article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl py-12 px-5 text-center bg-pf-card border border-pf-divider">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-accent/10 text-3xl flex items-center justify-center" aria-hidden="true">💊</div>
+            <h2 className="font-bold text-lg mt-4">{hasAnyMeds ? "오늘 예정된 약이 없어요" : "등록된 약이 없어요"}</h2>
+            <p className="text-sm text-pf-subtext mt-1">{hasAnyMeds ? "다른 요일의 복용 일정은 그대로 유지돼요." : "첫 약을 등록하고 복용 시간을 정해 보세요."}</p>
+            {!hasAnyMeds && <button type="button" onClick={onAddClick} className="mt-5 min-h-11 px-5 rounded-xl bg-[var(--pf-action)] text-white font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">첫 약 추가하기</button>}
           </div>
         )}
       </div>
 
-      {/* FAB */}
-      <div className="fixed bottom-32 right-6 z-40">
-        <button
-          onClick={onAddClick}
-          aria-label="새 약 추가"
-          className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl active:scale-90 transition-transform"
-          style={{ background: "linear-gradient(135deg,#6C63FF,#9B8FFF)" }}
-        >
-          <Plus size={28} className="text-white" strokeWidth={2.5} />
-        </button>
-      </div>
-
-      {/* 삭제 확인 모달 */}
+      <AnimatePresence>{detailMed && <MedicationDetailModal med={detailMed} dark={dark} onClose={() => setDetailMed(null)} onDelete={() => { setDeleteId(detailMed.id); setDetailMed(null); }} />}</AnimatePresence>
       <AnimatePresence>
-        {deleteId && (
-          <DeleteModal
-            dark={dark}
-            onCancel={() => setDeleteId(null)}
-            onConfirm={() => {
-              onDelete(deleteId);
-              setDeleteId(null);
-            }}
-          />
-        )}
-        {detailMed && (
-          <MedicationDetailModal
-            med={detailMed}
-            dark={dark}
-            onClose={() => setDetailMed(null)}
-          />
-        )}
+        {deleteId && <DeleteModal dark={dark} onCancel={() => setDeleteId(null)} onConfirm={() => { onDelete(deleteId); setDeleteId(null); }} />}
       </AnimatePresence>
     </div>
   );

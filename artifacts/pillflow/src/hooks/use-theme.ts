@@ -14,14 +14,14 @@ export function useDarkMode(dark: boolean) {
  * 하위 호환용: 기존 컴포넌트에서 인라인 스타일로 테마 색상을 사용하는 경우
  * 점진적으로 CSS 변수 유틸리티 클래스로 마이그레이션 후 제거 예정
  */
-export function useTheme(dark: boolean) {
+export function useTheme(_dark: boolean) {
   return {
-    bg: dark ? "#0D1117" : "#F5F7FF",
-    card: dark ? "#161B22" : "#FFFFFF",
-    surface: dark ? "#111827" : "#F9FAFB",
-    text: dark ? "#F0F6FC" : "#111827",
-    subtext: dark ? "#8B949E" : "#6B7280",
-    divider: dark ? "#21262D" : "#F3F4F6",
-    navBg: dark ? "rgba(22,27,34,0.95)" : "rgba(255,255,255,0.95)",
+    bg: "var(--pf-bg)",
+    card: "var(--pf-card)",
+    surface: "var(--pf-surface)",
+    text: "var(--pf-text)",
+    subtext: "var(--pf-subtext)",
+    divider: "var(--pf-divider)",
+    navBg: "var(--pf-nav-bg)",
   };
 }
