@@ -3,7 +3,9 @@
 # 접속 정보는 SSM /pillflow/prod/migration/* 에서 읽는다(로컬 AWS 자격증명 필요).
 set -euo pipefail
 get() { aws ssm get-parameter --region ap-northeast-1 --name "/pillflow/prod/migration/$1" --with-decryption --query Parameter.Value --output text; }
-env_file="$(mktemp)"; chmod 600 "$env_file"; trap 'rm -f "$env_file"' EXIT
+# mktemp 직후 chmod로는 파일 생성~권한 변경 사이에 짧은 노출 창이 생기므로, 생성 전에 umask로 막는다.
+umask 077
+env_file="$(mktemp)"; trap 'rm -f "$env_file"' EXIT
 {
   echo "FLYWAY_URL=$(get FLYWAY_URL)"
   echo "FLYWAY_USER=$(get FLYWAY_USERNAME)"
