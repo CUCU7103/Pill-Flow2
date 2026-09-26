@@ -1,0 +1,20 @@
+# 배포 파이프라인 1회 실행 프로파일 — 웹 서버 없이 Flyway만 실행하고 종료한다.
+spring:
+  config.activate.on-profile: migrate
+  main:
+    web-application-type: none
+  datasource:
+    url: ${FLYWAY_URL}
+    username: ${FLYWAY_USERNAME}
+    password: ${FLYWAY_PASSWORD}
+    hikari:
+      maximum-pool-size: 2
+  flyway:
+    enabled: true
+    url: ${FLYWAY_URL}
+    user: ${FLYWAY_USERNAME}
+    password: ${FLYWAY_PASSWORD}
+  jpa:
+    hibernate:
+      # 마이그레이션 중에는 엔티티 검증을 하지 않는다(검증은 prod 기동과 CI 테스트가 담당).
+      ddl-auto: none

@@ -1,0 +1,9 @@
+# 운영 서버 프로파일 — DDL은 배포 파이프라인의 migrate 단계만 수행한다.
+spring:
+  config.activate.on-profile: prod
+  flyway:
+    enabled: false
+  datasource:
+    hikari:
+      # Supavisor session 모드는 클라이언트 연결 수가 제한되므로 작게 유지한다.
+      maximum-pool-size: 5
