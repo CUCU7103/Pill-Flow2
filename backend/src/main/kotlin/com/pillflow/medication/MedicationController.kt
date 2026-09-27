@@ -1,6 +1,7 @@
 package com.pillflow.medication
 
 import com.pillflow.security.CurrentUser
+import com.pillflow.security.ConsentNotRequired
 import java.util.UUID
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -30,6 +31,7 @@ class MedicationController(private val service: MedicationService) {
     }
 
     @DeleteMapping
+    @ConsentNotRequired
     fun deleteAll(@CurrentUser userId: UUID): ResponseEntity<Void> {
         service.deleteAll(userId)
         return ResponseEntity.noContent().build()

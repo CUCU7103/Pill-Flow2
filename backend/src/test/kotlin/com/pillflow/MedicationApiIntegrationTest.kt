@@ -23,6 +23,7 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
         val body = """
             {"name":"비타민D","dosage":"1","memo":"아침","times":["08:00"],"type":"tablet","color":"#123456","days":["mon","wed","fri"]}
         """.trimIndent()
+        grantConsent(UUID.fromString(ApiTestJwt.defaultUserId))
         val authorization = authorization()
 
         val created = mockMvc.perform(
@@ -67,6 +68,7 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
     fun `생략한 memo와 color는 기본값을 쓰고 약 목록은 생성일 순으로 정렬한다`() {
         val userId = UUID.randomUUID()
         addUser(userId)
+        grantConsent(userId)
         val authorization = authorization(userId)
         fun create(name: String) = mockMvc.perform(
             post("/api/v1/medications")
@@ -93,6 +95,7 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
     fun `intake PUT은 중복 호출해도 로그 하나만 만들고 없는 DELETE도 성공한다`() {
         val userId = UUID.randomUUID()
         addUser(userId)
+        grantConsent(userId)
         val medication = medications.saveAndFlush(
             com.pillflow.medication.Medication(
                 userId = userId,
@@ -121,6 +124,8 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
         val other = UUID.randomUUID()
         addUser(owner)
         addUser(other)
+        grantConsent(owner)
+        grantConsent(other)
         val medication = medications.saveAndFlush(
             com.pillflow.medication.Medication(
                 userId = owner,
@@ -161,6 +166,7 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
         val other = UUID.randomUUID()
         addUser(owner)
         addUser(other)
+        grantConsent(owner)
         val own = medications.saveAndFlush(
             com.pillflow.medication.Medication(
                 userId = owner,
@@ -194,6 +200,7 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
 
     @Test
     fun `약 입력 검증과 잘못된 JSON 날짜 UUID는 모두 400 JSON이다`() {
+        grantConsent(UUID.fromString(ApiTestJwt.defaultUserId))
         val authorization = authorization()
         val invalidBodies = listOf(
             """{"name":" ","dosage":"1","times":["08:00"],"type":"tablet","days":["mon"]}""",

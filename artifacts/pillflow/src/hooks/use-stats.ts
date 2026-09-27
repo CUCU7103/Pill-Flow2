@@ -3,13 +3,14 @@ import { supabase } from "@/lib/supabase";
 import { getToday, toLocalDateStr } from "@/lib/medicationMapper";
 import { apiRequest, isApiMode } from "@/lib/apiClient";
 import { dateToDayLabel, type WeeklyDataPoint } from "@/lib/statsUtils";
+import { isConsentRequiredError } from "@/lib/consentUtils";
 
 /**
  * 주간 복약률과 연속 복용 일수(streak)를 계산하는 훅.
  * - 주간 통계: 최근 7일 복용 기록 조회
  * - streak: 최근 365일 복용 기록 조회 (7일만 조회하면 7일 초과 streak가 0이 되는 버그 방지)
  */
-export function useStats(totalMeds: number, userId?: string) {
+export function useStats(totalMeds: number, userId?: string, onConsentRequired?: () => void) {
   const [weeklyData, setWeeklyData] = useState<WeeklyDataPoint[]>([]);
   const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -107,7 +108,8 @@ export function useStats(totalMeds: number, userId?: string) {
           }
         }
         setStreak(s);
-      } catch {
+      } catch (error) {
+        if (isConsentRequiredError(error)) onConsentRequired?.();
         // 통계 로딩 실패 시 빈 데이터
         setWeeklyData([]);
         setStreak(0);
@@ -117,7 +119,7 @@ export function useStats(totalMeds: number, userId?: string) {
     }
 
     fetchStats();
-  }, [totalMeds, userId]);
+  }, [totalMeds, userId, onConsentRequired]);
 
   return { weeklyData, streak, loading };
 }

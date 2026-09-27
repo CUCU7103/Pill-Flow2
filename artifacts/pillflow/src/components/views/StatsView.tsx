@@ -8,10 +8,10 @@ import { averageRate } from "@/lib/statsUtils";
 import type { Medication } from "@/types";
 
 /** 통계 화면 */
-export function StatsView({ meds, dark, userId }: { meds: Medication[]; dark: boolean; userId?: string }) {
+export function StatsView({ meds, dark, userId, onConsentRequired }: { meds: Medication[]; dark: boolean; userId?: string; onConsentRequired?: () => void }) {
   const t = useTheme(dark);
   const total = meds.length;
-  const { weeklyData, loading } = useStats(total, userId);
+  const { weeklyData, loading } = useStats(total, userId, onConsentRequired);
   // Empty seven-day data is returned for zero registered medicines. It is not a
   // meaningful 0% result because there is no denominator yet.
   const hasStats = Boolean(userId && total > 0 && weeklyData.length > 0 && weeklyData.some((day) => day.rate !== null));

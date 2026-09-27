@@ -4,6 +4,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.HttpStatusCode
+import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -12,6 +13,7 @@ import org.springframework.beans.TypeMismatchException
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.context.request.WebRequest
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler
+import java.nio.charset.StandardCharsets
 
 enum class ErrorCode(val status: HttpStatus, val message: String) {
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
@@ -21,7 +23,10 @@ enum class ErrorCode(val status: HttpStatus, val message: String) {
     INVALID_MEDICATION(HttpStatus.BAD_REQUEST, "약 정보가 올바르지 않습니다."),
     INVALID_DATE(HttpStatus.BAD_REQUEST, "날짜 형식이 올바르지 않습니다."),
     INVALID_TIMEZONE(HttpStatus.BAD_REQUEST, "시간대가 올바르지 않습니다."),
-    MEDICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "약을 찾을 수 없습니다.")
+    MEDICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "약을 찾을 수 없습니다."),
+    CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "복약 정보 처리에 대한 동의가 필요합니다."),
+    CONSENT_VERSION_MISMATCH(HttpStatus.BAD_REQUEST, "처리방침 버전이 일치하지 않습니다."),
+    INVALID_CONSENT(HttpStatus.BAD_REQUEST, "동의 항목이 올바르지 않습니다.")
 }
 class BusinessException(val errorCode: ErrorCode) : RuntimeException(errorCode.message)
 data class ErrorResponse(val code: String, val message: String)
@@ -33,7 +38,9 @@ class GlobalExceptionHandler : ResponseEntityExceptionHandler() {
     private val log = LoggerFactory.getLogger(GlobalExceptionHandler::class.java)
 
     @ExceptionHandler(BusinessException::class)
-    fun handle(ex: BusinessException) = ResponseEntity.status(ex.errorCode.status).body(ErrorResponse(ex.errorCode.name, ex.errorCode.message))
+    fun handle(ex: BusinessException) = ResponseEntity.status(ex.errorCode.status)
+        .contentType(MediaType("application", "json", StandardCharsets.UTF_8))
+        .body(ErrorResponse(ex.errorCode.name, ex.errorCode.message))
     @ExceptionHandler(AccessDeniedException::class)
     fun handleAccessDenied() = ResponseEntity.status(HttpStatus.FORBIDDEN).body(ErrorResponse(ErrorCode.FORBIDDEN.name, ErrorCode.FORBIDDEN.message))
     @ExceptionHandler(Exception::class)

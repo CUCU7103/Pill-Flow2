@@ -92,6 +92,13 @@ export async function toggleMedicationLog(
 
 /** 현재 유저의 모든 복용 기록과 약 데이터를 삭제 */
 export async function resetAllMedications(userId: string): Promise<void> {
+  const { error: consentsErr } = await supabase
+    .from("user_consents")
+    .delete()
+    .eq("user_id", userId)
+    .in("consent_type", ["sensitive_health", "photo_analysis"]);
+  if (consentsErr) throw consentsErr;
+
   // 현재 유저의 약 id 목록 조회
   const { data: myMeds, error: fetchErr } = await supabase
     .from("medications")

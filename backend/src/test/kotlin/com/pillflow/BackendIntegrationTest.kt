@@ -1,10 +1,16 @@
 package com.pillflow
 
+import com.pillflow.common.BusinessException
+import com.pillflow.common.ErrorCode
+import com.pillflow.intake.IntakeService
 import com.pillflow.intake.MedicationLog
 import com.pillflow.intake.MedicationLogRepository
 import com.pillflow.medication.Medication
+import com.pillflow.medication.MedicationRequest
 import com.pillflow.medication.MedicationRepository
+import com.pillflow.medication.MedicationService
 import com.pillflow.medication.MedicationType
+import com.pillflow.consent.ConsentRepository
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
@@ -34,6 +40,9 @@ import org.springframework.jdbc.core.ConnectionCallback
 import org.springframework.jdbc.datasource.DriverManagerDataSource
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
+import jakarta.persistence.EntityManager
 import org.springframework.dao.DataAccessException
 import org.springframework.dao.DataIntegrityViolationException
 import org.flywaydb.core.Flyway
@@ -45,6 +54,9 @@ import java.time.LocalDate
 import java.util.UUID
 import java.time.Instant
 import java.util.Date
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.sql.SQLException
 import java.sql.Timestamp
 import java.sql.DriverManager
@@ -69,7 +81,12 @@ import com.pillflow.security.supabaseJwtValidator
 class BackendIntegrationTest @Autowired constructor(
     private val medications: MedicationRepository,
     private val logs: MedicationLogRepository,
+    private val medicationService: MedicationService,
+    private val intakeService: IntakeService,
+    private val consents: ConsentRepository,
     private val jdbc: JdbcTemplate,
+    private val transactionManager: PlatformTransactionManager,
+    private val entityManager: EntityManager,
     private val mockMvc: MockMvc,
 ) {
     companion object {
@@ -85,6 +102,119 @@ class BackendIntegrationTest @Autowired constructor(
             registry.add("CORS_ALLOWED_ORIGINS") { "https://client.test" }
         }
     }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `복약 생성과 복용 기록 서비스는 현재 동의가 없으면 직접 호출도 거부한다`() {
+        val userId = UUID.randomUUID()
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?)", userId)
+        val request = MedicationRequest(
+            name = "동의 잠금 약",
+            dosage = "1",
+            times = listOf("08:00"),
+            type = "tablet",
+            days = listOf("mon"),
+        )
+
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'age_over_14','2026-09-27'), (?,'sensitive_health','2026-09-27')",
+            userId,
+            userId,
+        )
+        val created = medicationService.create(userId, request)
+        intakeService.take(userId, created.id, "2026-09-27")
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE user_id=?", Int::class.java, userId))
+
+        jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", userId)
+        val createFailure = assertThrows<BusinessException> { medicationService.create(userId, request) }
+        val takeFailure = assertThrows<BusinessException> { intakeService.take(userId, created.id, "2026-09-28") }
+        assertEquals(ErrorCode.CONSENT_REQUIRED, createFailure.errorCode)
+        assertEquals(ErrorCode.CONSENT_REQUIRED, takeFailure.errorCode)
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, userId))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE user_id=?", Int::class.java, userId))
+    }
+
+    @Test
+    fun `advisory lock serializes medication creation with consent withdrawal`() {
+        val userId = UUID.randomUUID()
+        val transaction = TransactionTemplate(transactionManager)
+        val executor = Executors.newFixedThreadPool(2)
+        val lockHeld = CountDownLatch(1)
+        val allowWithdrawalCommit = CountDownLatch(1)
+        val createStarted = CountDownLatch(1)
+        val createFinished = CountDownLatch(1)
+        val request = MedicationRequest(
+            name = "철회 경합 약",
+            dosage = "1",
+            times = listOf("08:00"),
+            type = "tablet",
+            days = listOf("mon"),
+        )
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?)", userId)
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'age_over_14','2026-09-27'), (?,'sensitive_health','2026-09-27')",
+            userId,
+            userId,
+        )
+
+        try {
+            val withdrawal = executor.submit {
+                transaction.executeWithoutResult {
+                    consents.lockUserForDataReset(userId)
+                    val jdbcPid = jdbc.queryForObject("SELECT pg_backend_pid()", Int::class.java)!!
+                    val jpaPid = (entityManager.createNativeQuery("SELECT pg_backend_pid()").singleResult as Number).toInt()
+                    assertEquals(jdbcPid, jpaPid, "JdbcTemplate과 JPA는 같은 트랜잭션 커넥션을 사용한다")
+                    assertTrue(
+                        jdbc.queryForObject(
+                            "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND granted",
+                            Int::class.java,
+                        )!! > 0,
+                        "현재 트랜잭션이 사용자 advisory lock을 보유한다",
+                    )
+                    lockHeld.countDown()
+                    assertTrue(allowWithdrawalCommit.await(10, TimeUnit.SECONDS), "철회 트랜잭션 대기 시간 초과")
+                    assertEquals(
+                        1,
+                        jdbc.update(
+                            "DELETE FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'",
+                            userId,
+                        ),
+                    )
+                }
+            }
+
+            assertTrue(lockHeld.await(5, TimeUnit.SECONDS), "철회 트랜잭션이 advisory lock을 얻지 못했다")
+            val creation = executor.submit<BusinessException?> {
+                createStarted.countDown()
+                try {
+                    medicationService.create(userId, request)
+                    null
+                } catch (failure: BusinessException) {
+                    failure
+                } finally {
+                    createFinished.countDown()
+                }
+            }
+            assertTrue(createStarted.await(5, TimeUnit.SECONDS), "복약 생성 작업이 시작되지 않았다")
+            assertFalse(createFinished.await(500, TimeUnit.MILLISECONDS), "생성은 철회 트랜잭션의 advisory lock에서 대기해야 한다")
+
+            allowWithdrawalCommit.countDown()
+            withdrawal.get(10, TimeUnit.SECONDS)
+            val failure = creation.get(10, TimeUnit.SECONDS)
+            assertNotNull(failure, "동의 철회 커밋 뒤 복약 생성은 거부되어야 한다")
+            assertEquals(ErrorCode.CONSENT_REQUIRED, failure!!.errorCode)
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, userId))
+        } finally {
+            allowWithdrawalCommit.countDown()
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS), "동시성 테스트 작업이 시간 안에 끝나야 한다")
+            jdbc.update("DELETE FROM public.medication_logs WHERE user_id=?", userId)
+            jdbc.update("DELETE FROM public.medications WHERE user_id=?", userId)
+            jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", userId)
+            jdbc.update("DELETE FROM auth.users WHERE id=?", userId)
+        }
+    }
+
     @Test fun `엔티티 배열과 enum을 저장하고 조회한다`() {
         val user = UUID.randomUUID()
         jdbc.update("INSERT INTO auth.users (id) VALUES (?)", user)
@@ -145,6 +275,34 @@ class BackendIntegrationTest @Autowired constructor(
                 assertEquals(false, hasPrivilege("pillflow_api", table, privilege), "pillflow_api $privilege $table")
             }
         }
+        listOf("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER").forEach { privilege ->
+            assertEquals(false, hasPrivilege("anon", "user_consents", privilege), "anon $privilege user_consents")
+        }
+        assertEquals(true, hasPrivilege("authenticated", "user_consents", "SELECT"), "authenticated SELECT user_consents")
+        assertEquals(false, hasPrivilege("authenticated", "user_consents", "INSERT"), "authenticated has column-only INSERT on user_consents")
+        listOf("SELECT", "INSERT").forEach { privilege ->
+            assertEquals(true, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
+        }
+        listOf("user_id", "consent_type", "policy_version").forEach { column ->
+            assertEquals(
+                true,
+                jdbc.queryForObject(
+                    "SELECT has_column_privilege('authenticated', 'public.user_consents', ?, 'INSERT')",
+                    Boolean::class.java,
+                    column,
+                ),
+                "authenticated can insert user_consents.$column",
+            )
+        }
+        assertEquals(false, jdbc.queryForObject("SELECT has_column_privilege('authenticated', 'public.user_consents', 'agreed_at', 'INSERT')", Boolean::class.java))
+        listOf("DELETE").forEach { privilege ->
+            assertEquals(true, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
+            assertEquals(true, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
+        }
+        listOf("UPDATE", "TRUNCATE", "REFERENCES", "TRIGGER").forEach { privilege ->
+            assertEquals(false, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
+            assertEquals(false, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
+        }
         listOf("anon", "authenticated", "service_role").forEach { role ->
             assertEquals(
                 false,
@@ -175,7 +333,7 @@ class BackendIntegrationTest @Autowired constructor(
     private fun hasPrivilege(role: String, table: String, privilege: String): Boolean =
         jdbc.queryForObject("SELECT has_table_privilege(?, ?, ?)", Boolean::class.java, role, "public.$table", privilege)!!
 
-    @Test fun `ALTER 적용 운영 스키마를 baseline하면 V2만 적용되고 JPA 검증이 통과한다`() {
+    @Test fun `ALTER 적용 운영 스키마를 baseline하면 V2와 V3가 적용되고 기존 행이 유지된다`() {
         val databaseName = "baseline_${UUID.randomUUID().toString().replace("-", "")}"
         DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
             connection.createStatement().use { it.execute("CREATE DATABASE $databaseName") }
@@ -206,15 +364,16 @@ class BackendIntegrationTest @Autowired constructor(
                 .load()
 
             flyway.baseline()
-            assertEquals(1, flyway.migrate().migrationsExecuted)
+            assertEquals(2, flyway.migrate().migrationsExecuted)
             assertEquals(
-                listOf("1", "2"),
+                listOf("1", "2", "3"),
                 baselineJdbc.queryForList(
                     "SELECT version FROM flyway.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank",
                     String::class.java,
                 ),
             )
             assertEquals(true, baselineJdbc.queryForObject("SELECT rolbypassrls FROM pg_roles WHERE rolname='pillflow_api'", Boolean::class.java))
+            assertEquals(0, baselineJdbc.queryForObject("SELECT count(*) FROM public.user_consents", Int::class.java))
             assertEquals(1, baselineJdbc.queryForObject("SELECT count(*) FROM public.medications", Int::class.java))
             assertEquals(1, baselineJdbc.queryForObject("SELECT count(*) FROM public.medication_logs", Int::class.java))
             // V1로 새로 만든 스키마와 운영(ALTER 적용 후 baseline) 스키마의 컬럼 정의(타입·NULL 허용·기본값)가 같아야 한다.
@@ -222,7 +381,7 @@ class BackendIntegrationTest @Autowired constructor(
             val columnDefinitionsSql = """
                 SELECT table_name, column_name, udt_name, is_nullable, column_default
                 FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name IN ('medications', 'medication_logs')
+                WHERE table_schema = 'public' AND table_name IN ('medications', 'medication_logs', 'user_consents')
                 ORDER BY table_name, column_name
             """.trimIndent()
             assertEquals(jdbc.queryForList(columnDefinitionsSql), baselineJdbc.queryForList(columnDefinitionsSql))
@@ -264,14 +423,14 @@ class BackendIntegrationTest @Autowired constructor(
         assertEquals(listOf("other"), jdbc.queryForList("SELECT name FROM public.medications", String::class.java))
         assertEquals(0, jdbc.update("UPDATE public.medications SET name='changed' WHERE id=?", ownerMedication))
         assertEquals(1, jdbc.update("UPDATE public.medications SET name='changed' WHERE id=?", otherMedication))
-        assertRlsViolation {
+        assertInsufficientPrivilegeSqlState {
             jdbc.update("UPDATE public.medications SET user_id=? WHERE id=?", owner, otherMedication)
         }
         assertEquals(0, jdbc.update("DELETE FROM public.medications WHERE id=?", ownerMedication))
         assertEquals(listOf(other.toString()), jdbc.queryForList("SELECT user_id::text FROM public.medication_logs", String::class.java))
         assertEquals(0, jdbc.update("DELETE FROM public.medication_logs WHERE id=?", ownerLog))
         assertEquals(1, jdbc.update("DELETE FROM public.medication_logs WHERE id=?", otherLog))
-        assertRlsViolation {
+        assertInsufficientPrivilegeSqlState {
             jdbc.update(
                 "INSERT INTO public.medication_logs(medication_id,user_id,taken_on) VALUES (?, ?, '2026-09-27')",
                 ownerMedication,
@@ -280,7 +439,84 @@ class BackendIntegrationTest @Autowired constructor(
         }
     }
 
-    private fun assertRlsViolation(action: () -> Unit) {
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `동의 기록은 authenticated가 본인 행만 추가 조회 삭제하고 수정하지 못한다`() {
+        val owner = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?), (?)", owner, other)
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'age_over_14','2026-09-27'), (?,'age_over_14','2026-09-27')",
+            owner,
+            other,
+        )
+
+        jdbc.execute("SET LOCAL ROLE authenticated")
+        jdbc.queryForObject("SELECT set_config('request.jwt.claim.sub', ?, true)", String::class.java, owner.toString())
+
+        assertEquals(listOf(owner.toString()), jdbc.queryForList("SELECT user_id::text FROM public.user_consents", String::class.java))
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27')",
+            owner,
+        )
+        assertEquals(
+            0,
+            jdbc.update(
+                "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27') ON CONFLICT (user_id,consent_type,policy_version) DO NOTHING",
+                owner,
+            ),
+        )
+        assertInsufficientPrivilegeSqlState {
+            jdbc.update(
+                "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27')",
+                other,
+            )
+        }
+        assertInsufficientPrivilegeSqlState {
+            jdbc.update(
+                "INSERT INTO public.user_consents(user_id,consent_type,policy_version,agreed_at) VALUES (?,'photo_analysis','2026-09-27','2000-01-01T00:00:00Z')",
+                owner,
+            )
+        }
+        assertInsufficientPrivilegeSqlState {
+            jdbc.update(
+                "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'photo_analysis','2027-09-27')",
+                owner,
+            )
+        }
+        assertInsufficientPrivilegeSqlState {
+            jdbc.update("UPDATE public.user_consents SET policy_version='future' WHERE user_id=?", owner)
+        }
+        assertEquals(0, jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", other))
+        assertEquals(1, jdbc.update("DELETE FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'", owner))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=?", Int::class.java, owner))
+        jdbc.execute("RESET ROLE")
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=?", Int::class.java, other))
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `authenticated는 연령 동의는 유지하고 철회 대상 동의만 삭제할 수 있다`() {
+        val owner = UUID.randomUUID()
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?)", owner)
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'age_over_14','2026-09-27'), (?,'sensitive_health','2026-09-27')",
+            owner,
+            owner,
+        )
+
+        jdbc.execute("SET LOCAL ROLE authenticated")
+        jdbc.queryForObject("SELECT set_config('request.jwt.claim.sub', ?, true)", String::class.java, owner.toString())
+
+        assertEquals(0, jdbc.update("DELETE FROM public.user_consents WHERE user_id=? AND consent_type='age_over_14'", owner))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=? AND consent_type='age_over_14'", Int::class.java, owner))
+        assertEquals(1, jdbc.update("DELETE FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'", owner))
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'", Int::class.java, owner))
+        jdbc.execute("RESET ROLE")
+    }
+
+    // RLS 위반과 권한 부재는 모두 PostgreSQL의 insufficient_privilege(42501)로 거부된다.
+    private fun assertInsufficientPrivilegeSqlState(action: () -> Unit) {
         val failure = assertThrows<DataAccessException> {
             jdbc.execute(ConnectionCallback { connection ->
                 val savepoint = connection.setSavepoint()
@@ -302,6 +538,13 @@ class BackendIntegrationTest @Autowired constructor(
             .andExpect(content().contentType("application/json;charset=UTF-8"))
             .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
             .andExpect(jsonPath("$.message").value("인증이 필요합니다."))
+    }
+
+    @Test fun `sub가 UUID가 아니면 JSON 401을 반환한다`() {
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer ${SecurityTestJwt.token(subject = "not-a-uuid")}"))
+            .andExpect(status().isUnauthorized)
+            .andExpect(content().contentType("application/json;charset=UTF-8"))
+            .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
     }
 
     @Test fun `잘못된 서명 issuer audience와 만료 토큰은 거부한다`() {
@@ -393,10 +636,11 @@ private object SecurityTestJwt {
         issuer: String = this.issuer,
         audience: List<String> = listOf("authenticated"),
         expiresAt: Instant = Instant.now().plusSeconds(300),
+        subject: String = this.userId,
     ): String {
         val claims = JWTClaimsSet.Builder()
             .issuer(issuer)
-            .subject(userId)
+            .subject(subject)
             .audience(audience)
             .issueTime(Date.from(Instant.now().minusSeconds(5)))
             .expirationTime(Date.from(expiresAt))

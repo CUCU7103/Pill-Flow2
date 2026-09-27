@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import type { User } from "@supabase/supabase-js";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { usePersisted } from "@/hooks/use-persisted";
@@ -6,12 +7,15 @@ import { useDarkMode } from "@/hooks/use-theme";
 import { useAndroidBackButton } from "@/hooks/use-android-back-button";
 import { useMedications } from "@/hooks/use-medications";
 import { useAuth } from "@/hooks/use-auth";
-import { useNotifications } from "@/hooks/use-notifications";
+import { cancelAllNotifications, useNotifications } from "@/hooks/use-notifications";
 import { useDayChange } from "@/hooks/use-day-change";
+import { useConsent } from "@/hooks/use-consent";
+import { isConsentComplete, transitionConsentGuard, type ConsentType } from "@/lib/consentUtils";
 import { BottomNav } from "@/components/common/BottomNav";
 import { TodayView } from "@/components/views/TodayView";
 import { AddView } from "@/components/views/AddView";
 import { StatsView } from "@/components/views/StatsView";
+import { ConsentView } from "@/components/views/ConsentView";
 import { LoginView } from "@/components/views/LoginView";
 import { SettingsModal } from "@/components/modals/SettingsModal";
 import { DAY_KEYS_SUN_FIRST } from "@/constants";
@@ -30,9 +34,185 @@ function LoadingSpinner() {
 }
 
 export default function App() {
+  const [dark, setDark] = usePersisted<boolean>("pillflow_dark", false);
+
+  // html 요소에 dark 클래스 동기화 (인증 여부와 무관하게 항상 적용)
+  useDarkMode(dark);
+
+  // 인증 상태 관리
+  const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
+  const consent = useConsent(user?.id);
+  const consentRequiredCount = useRef(0);
+  const reloadingConsentRef = useRef(false);
+  const activeUserId = useRef<string | null>(null);
+  const [consentGuardError, setConsentGuardError] = useState(false);
+
+  useEffect(() => {
+    if (user && consent.status && !isConsentComplete(consent.status)) {
+      void cancelAllNotifications();
+    }
+  }, [user?.id, consent.status]);
+
+  const handleConsentSignOut = useCallback(async () => {
+    await cancelAllNotifications();
+    await signOut();
+  }, [signOut]);
+
+  useEffect(() => {
+    if (activeUserId.current === (user?.id ?? null)) return;
+    activeUserId.current = user?.id ?? null;
+    consentRequiredCount.current = 0;
+    reloadingConsentRef.current = false;
+    setConsentGuardError(false);
+  }, [user?.id]);
+
+  const handleConsentRequired = useCallback(() => {
+    const decision = transitionConsentGuard(
+      "consent_required",
+      reloadingConsentRef.current,
+      consentRequiredCount.current,
+    );
+    consentRequiredCount.current = decision.consecutiveFailures;
+    if (decision.action === "ignore") return;
+    if (decision.action === "show_error") {
+      setConsentGuardError(true);
+      return;
+    }
+    reloadingConsentRef.current = true;
+    void consent.reload().finally(() => {
+      reloadingConsentRef.current = false;
+    });
+  }, [consent.reload]);
+
+  const handleMedicationQuerySucceeded = useCallback(() => {
+    const decision = transitionConsentGuard("medications_loaded", false, consentRequiredCount.current);
+    consentRequiredCount.current = decision.consecutiveFailures;
+  }, []);
+
+  const handleConsentAgree = useCallback(async (types: ConsentType[]) => {
+    const status = await consent.save(types);
+    consentRequiredCount.current = 0;
+    setConsentGuardError(false);
+    return status;
+  }, [consent.save]);
+
+  const retryConsent = useCallback(() => {
+    consentRequiredCount.current = 0;
+    setConsentGuardError(false);
+    reloadingConsentRef.current = true;
+    void consent.reload().finally(() => {
+      reloadingConsentRef.current = false;
+    });
+  }, [consent.reload]);
+
+  const handleMedicationReset = useCallback(() => {
+    consent.markWithdrawn();
+    consentRequiredCount.current = 0;
+    setConsentGuardError(false);
+    reloadingConsentRef.current = true;
+    void consent.reload().finally(() => {
+      reloadingConsentRef.current = false;
+    });
+  }, [consent.markWithdrawn, consent.reload]);
+
+  const handleMedicationResetFailed = useCallback(() => {
+    reloadingConsentRef.current = true;
+    void consent.reload().finally(() => {
+      reloadingConsentRef.current = false;
+    });
+  }, [consent.reload]);
+
+  const recordPhotoConsent = useCallback(() => consent.save(["photo_analysis"]), [consent.save]);
+
+  // Google OAuth 세션 확인 중
+  if (authLoading) return <LoadingSpinner />;
+
+  // 미로그인 → 로그인 화면 표시
+  if (!user) return <LoginView onSignIn={signInWithGoogle} />;
+  if (consent.loading) return <LoadingSpinner />;
+
+  if (consent.status && !isConsentComplete(consent.status)) {
+    return (
+      <ConsentView
+        status={consent.status}
+        dark={dark}
+        onAgree={handleConsentAgree}
+        onSignOut={handleConsentSignOut}
+      />
+    );
+  }
+
+  if ((!consent.status && consent.error) || consentGuardError) {
+    return (
+      <main className="min-h-full bg-pf-bg flex items-center justify-center px-6">
+        <div className="w-full max-w-sm rounded-3xl bg-pf-card border border-pf-divider p-6 text-center">
+          <h1 className="text-xl font-bold text-pf-text">동의 상태를 불러오지 못했어요</h1>
+          <p className="mt-2 text-sm text-pf-subtext">연결을 확인한 뒤 다시 시도해 주세요.</p>
+          <button
+            type="button"
+            onClick={retryConsent}
+            className="mt-6 min-h-12 w-full rounded-2xl bg-[var(--pf-action)] text-white font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pf-accent)]"
+          >
+            다시 시도
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  if (!isConsentComplete(consent.status)) {
+    return (
+      <ConsentView
+        status={consent.status}
+        dark={dark}
+        onAgree={handleConsentAgree}
+        onSignOut={handleConsentSignOut}
+      />
+    );
+  }
+
+  return (
+    <AuthenticatedApp
+      user={user}
+      dark={dark}
+      setDark={setDark}
+      signOut={signOut}
+      photoAnalysis={Boolean(consent.status?.photoAnalysis)}
+      onPhotoConsent={recordPhotoConsent}
+      onConsentRequired={handleConsentRequired}
+      onMedicationQuerySucceeded={handleMedicationQuerySucceeded}
+      onMedicationReset={handleMedicationReset}
+      onMedicationResetFailed={handleMedicationResetFailed}
+    />
+  );
+}
+
+/** 필수 동의가 끝난 뒤에만 마운트해 약·통계 조회가 동의 화면보다 먼저 실행되지 않게 한다. */
+function AuthenticatedApp({
+  user,
+  dark,
+  setDark,
+  signOut,
+  photoAnalysis,
+  onPhotoConsent,
+  onConsentRequired,
+  onMedicationQuerySucceeded,
+  onMedicationReset,
+  onMedicationResetFailed,
+}: {
+  user: User;
+  dark: boolean;
+  setDark: (value: boolean) => void;
+  signOut: () => Promise<void>;
+  photoAnalysis: boolean;
+  onPhotoConsent: () => Promise<unknown>;
+  onConsentRequired: () => void;
+  onMedicationQuerySucceeded: () => void;
+  onMedicationReset: () => void;
+  onMedicationResetFailed: () => void;
+}) {
   const reduceMotion = useReducedMotion();
   const [view, setView] = useState<View>("today");
-  const [dark, setDark] = usePersisted<boolean>("pillflow_dark", false);
   const [notif, setNotif] = usePersisted<boolean>("pillflow_notif", true);
   const [notifCategories, setNotifCategories] = usePersisted<NotifCategories>(
     "pillflow_notif_categories",
@@ -40,15 +220,23 @@ export default function App() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // html 요소에 dark 클래스 동기화 (인증 여부와 무관하게 항상 적용)
-  useDarkMode(dark);
-
-  // 인증 상태 관리
-  const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
-
   // Supabase 기반 약 데이터 (로그인 후에만 사용)
   // user.id를 전달해 RLS insert 시 user_id가 포함되도록 함
-  const { meds, loading: medsLoading, error: medsError, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user?.id);
+  const { meds, loading: medsLoading, error: medsError, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user.id, onConsentRequired);
+
+  const handleResetAll = useCallback(async () => {
+    try {
+      await resetAll();
+      onMedicationReset();
+    } catch (error) {
+      onMedicationResetFailed();
+      throw error;
+    }
+  }, [resetAll, onMedicationReset, onMedicationResetFailed]);
+
+  useEffect(() => {
+    if (!medsLoading && !medsError) onMedicationQuerySucceeded();
+  }, [medsLoading, medsError, onMedicationQuerySucceeded]);
 
   // 복약 알림 스케줄링 (네이티브 앱에서만 동작)
   useNotifications(meds, notif, notifCategories);
@@ -109,12 +297,6 @@ export default function App() {
       toast.error("로그아웃 실패");
     }
   }, [signOut]);
-
-  // Google OAuth 세션 확인 중
-  if (authLoading) return <LoadingSpinner />;
-
-  // 미로그인 → 로그인 화면 표시
-  if (!user) return <LoginView onSignIn={signInWithGoogle} />;
 
   // 약 데이터 로딩 중
   if (medsLoading) return <LoadingSpinner />;
@@ -179,7 +361,7 @@ export default function App() {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: reduceMotion ? 0 : 0.2 }}
             >
-              <AddView onBack={() => setView("today")} onSave={handleAdd} dark={dark} />
+              <AddView onBack={() => setView("today")} onSave={handleAdd} dark={dark} photoAnalysis={photoAnalysis} onPhotoConsent={onPhotoConsent} />
             </motion.div>
           )}
           {view === "stats" && (
@@ -191,7 +373,7 @@ export default function App() {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: reduceMotion ? 0 : 0.2 }}
             >
-              <StatsView meds={meds} dark={dark} userId={user?.id} />
+              <StatsView meds={meds} dark={dark} userId={user.id} onConsentRequired={onConsentRequired} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -211,7 +393,7 @@ export default function App() {
             onToggleNotif={handleToggleNotif}
             user={user}
             onSignOut={handleSignOut}
-            onResetAll={resetAll}
+            onResetAll={handleResetAll}
           />
         )}
       </AnimatePresence>

@@ -8,6 +8,7 @@ import type { Medication, NotifCategories } from "@/types";
 // 채널 정책(사운드/중요도 등)이 바뀔 때마다 버전을 올려야 한다.
 // Android NotificationChannel은 한 번 생성되면 불변이므로, ID를 바꿔야 새 설정이 기존 사용자에게 적용된다.
 const CHANNEL_ID = "pillflow-reminders-v2";
+let scheduleGeneration = 0;
 
 /**
  * 복약 알림을 스케줄링하는 훅
@@ -30,9 +31,9 @@ export function useNotifications(
     if (!Capacitor.isNativePlatform()) return;
 
     if (notif) {
-      scheduleNotifications(meds, categories);
+      void scheduleNotifications(meds, categories);
     } else {
-      cancelAllNotifications();
+      void cancelAllNotifications();
     }
     // 객체 참조 대신 원시값으로 풀어서 불필요한 재실행 방지
   }, [meds, notif, categories.morning, categories.lunch, categories.evening]);
@@ -50,6 +51,15 @@ export function useNotifications(
 
     return () => {
       listenerPromise.then((l) => l.remove()).catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    // 로그아웃·계정 전환·필수 동의 해제로 앱 본체가 내려가면 이전 사용자의 예약 알림을 취소한다.
+    return () => {
+      void cancelAllNotifications();
     };
   }, []);
 }
@@ -81,18 +91,24 @@ async function ensureNotificationChannel() {
 
 /** 모든 기존 알림을 취소하고 현재 약 목록으로 재스케줄링 */
 async function scheduleNotifications(meds: Medication[], categories: NotifCategories) {
+  const generation = ++scheduleGeneration;
+  const isCurrentGeneration = () => generation === scheduleGeneration;
+
   try {
     // 알림 권한 요청 (Android 13+ / iOS는 반드시 필요)
     const { display } = await LocalNotifications.requestPermissions();
-    if (display !== "granted") return;
+    if (!isCurrentGeneration() || display !== "granted") return;
 
     // Android 채널 생성 (소리/진동 포함)
     await ensureNotificationChannel();
+    if (!isCurrentGeneration()) return;
 
     await logExactAlarmSetting();
+    if (!isCurrentGeneration()) return;
 
     // 기존 알림을 모두 취소하고 새로 스케줄링 (중복 방지)
-    await cancelAllNotifications();
+    await cancelPendingNotifications(generation);
+    if (!isCurrentGeneration()) return;
 
     // 요일이 있는 약만 스케줄링 (완료 여부는 무시 — 내일도 다시 울려야 함)
     // 카테고리 필터링은 buildMedicationNotifications 내부에서 times별로 처리
@@ -101,7 +117,7 @@ async function scheduleNotifications(meds: Medication[], categories: NotifCatego
 
     const notifications = buildMedicationNotifications(activeMeds, categories, CHANNEL_ID);
 
-    if (notifications.length === 0) return;
+    if (notifications.length === 0 || !isCurrentGeneration()) return;
 
     await LocalNotifications.schedule({ notifications });
   } catch (error) {
@@ -122,9 +138,16 @@ async function logExactAlarmSetting() {
 }
 
 /** 모든 예약된 로컬 알림 취소 */
-async function cancelAllNotifications() {
+export function cancelAllNotifications() {
+  if (!Capacitor.isNativePlatform()) return Promise.resolve();
+  const generation = ++scheduleGeneration;
+  return cancelPendingNotifications(generation);
+}
+
+async function cancelPendingNotifications(generation: number) {
   try {
     const { notifications } = await LocalNotifications.getPending();
+    if (generation !== scheduleGeneration) return;
     if (notifications.length > 0) {
       await LocalNotifications.cancel({ notifications });
     }

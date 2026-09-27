@@ -4,6 +4,7 @@ import com.pillflow.common.BusinessException
 import com.pillflow.common.ErrorCode
 import com.pillflow.common.parseApiDate
 import com.pillflow.common.parseApiUuid
+import com.pillflow.consent.ConsentRepository
 import com.pillflow.intake.MedicationLogRepository
 import java.util.UUID
 import org.springframework.stereotype.Service
@@ -16,6 +17,7 @@ private val VALID_DAYS = setOf("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 class MedicationService(
     private val medications: MedicationRepository,
     private val logs: MedicationLogRepository,
+    private val consents: ConsentRepository,
 ) {
     @Transactional(readOnly = true)
     fun findAll(userId: UUID, dateValue: String): List<MedicationResponse> {
@@ -26,6 +28,7 @@ class MedicationService(
 
     @Transactional
     fun create(userId: UUID, request: MedicationRequest): MedicationResponse {
+        consents.lockAndRequireCurrentConsent(userId)
         val input = request.validate()
         val medication = medications.saveAndFlush(
             Medication(
@@ -51,7 +54,9 @@ class MedicationService(
 
     @Transactional
     fun deleteAll(userId: UUID) {
+        consents.lockUserForDataReset(userId)
         medications.deleteAllByUserId(userId)
+        consents.deleteSensitiveConsents(userId)
     }
 
     fun requireOwned(userId: UUID, medicationId: UUID): Medication =

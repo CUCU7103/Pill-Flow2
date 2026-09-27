@@ -85,7 +85,7 @@ class DeployProfilesTest {
         // MigrateExitRunner가 이미 SpringApplication.exit(context)를 호출해 컨텍스트를 닫았으므로,
         // 여기서는 러너가 기록한 종료 코드만 확인한다(컨텍스트를 다시 닫으려 하면 안 된다).
         assertEquals(0, TestProcessExiterConfig.lastExitCode.get())
-        assertEquals(listOf("0", "1", "2"), appliedVersions())
+        assertEquals(listOf("0", "1", "2", "3"), appliedVersions())
     }
 
     @Test
@@ -112,7 +112,7 @@ class DeployProfilesTest {
     @Test
     fun `prod 프로파일은 Flyway를 실행하지 않는다`() {
         resetDatabase()
-        // V1까지만 적용해 둔다. prod가 Flyway를 실행하면 V2가 추가로 적용되어 테스트가 실패한다.
+        // V1까지만 적용해 둔다. prod가 Flyway를 실행하면 V2·V3가 추가로 적용되어 테스트가 실패한다.
         Flyway.configure()
             .dataSource(postgres.jdbcUrl, postgres.username, postgres.password)
             .schemas("flyway").defaultSchema("flyway").createSchemas(true)
