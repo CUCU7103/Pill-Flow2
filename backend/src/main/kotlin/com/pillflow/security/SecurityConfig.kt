@@ -57,8 +57,9 @@ class SecurityConfig(
         val c = CorsConfiguration().apply { allowedOrigins = origins.split(',').map(String::trim); allowedMethods = listOf("GET","POST","PUT","PATCH","DELETE","OPTIONS"); allowedHeaders = listOf("*"); allowCredentials = true }
         it.registerCorsConfiguration("/**", c)
     }
-    private fun jsonEntryPoint() = AuthenticationEntryPoint { _, response, _ -> response.status = 401; response.contentType = "application/json"; response.writer.write(objectMapper.writeValueAsString(ErrorResponse(ErrorCode.UNAUTHORIZED.name, ErrorCode.UNAUTHORIZED.message))) }
-    private fun jsonDeniedHandler() = AccessDeniedHandler { _, response, _ -> response.status = 403; response.contentType = "application/json"; response.writer.write(objectMapper.writeValueAsString(ErrorResponse(ErrorCode.FORBIDDEN.name, ErrorCode.FORBIDDEN.message))) }
+    // charset을 지정하지 않으면 서블릿 기본값(ISO-8859-1)으로 인코딩되어 한국어 메시지가 "???"로 깨진다
+    private fun jsonEntryPoint() = AuthenticationEntryPoint { _, response, _ -> response.status = 401; response.contentType = "application/json;charset=UTF-8"; response.writer.write(objectMapper.writeValueAsString(ErrorResponse(ErrorCode.UNAUTHORIZED.name, ErrorCode.UNAUTHORIZED.message))) }
+    private fun jsonDeniedHandler() = AccessDeniedHandler { _, response, _ -> response.status = 403; response.contentType = "application/json;charset=UTF-8"; response.writer.write(objectMapper.writeValueAsString(ErrorResponse(ErrorCode.FORBIDDEN.name, ErrorCode.FORBIDDEN.message))) }
 }
 
 internal fun supabaseJwtValidator(issuer: String, audience: String): OAuth2TokenValidator<Jwt> =
