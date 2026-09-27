@@ -298,8 +298,10 @@ class BackendIntegrationTest @Autowired constructor(
     @Test fun `토큰이 없으면 JSON 401을 반환한다`() {
         mockMvc.perform(get("/api/v1/me"))
             .andExpect(status().isUnauthorized)
+            // charset이 빠지면 한국어 메시지가 ISO-8859-1로 인코딩되어 "???"로 깨진다
+            .andExpect(content().contentType("application/json;charset=UTF-8"))
             .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
-            .andExpect(jsonPath("$.message").isNotEmpty)
+            .andExpect(jsonPath("$.message").value("인증이 필요합니다."))
     }
 
     @Test fun `잘못된 서명 issuer audience와 만료 토큰은 거부한다`() {
