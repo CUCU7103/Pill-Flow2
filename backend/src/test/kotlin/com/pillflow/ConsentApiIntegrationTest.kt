@@ -242,6 +242,47 @@ class ConsentApiIntegrationTest : ApiIntegrationTestSupport() {
     }
 
     @Test
+    fun `동의가 없어도 인증된 사용자는 전체 초기화만 할 수 있고 보호 경로는 계속 차단된다`() {
+        val userId = UUID.randomUUID()
+        addUser(userId)
+        val medicationId = UUID.randomUUID()
+        jdbc.update(
+            "INSERT INTO public.medications(id,user_id,name,dosage,type,times,days) VALUES (?,?,'초기화 대상','1','tablet','{08:00}','{mon}')",
+            medicationId,
+            userId,
+        )
+        jdbc.update(
+            "INSERT INTO public.medication_logs(medication_id,user_id,taken_on) VALUES (?,?,'2026-09-27')",
+            medicationId,
+            userId,
+        )
+        val authorization = authorization(userId)
+
+        mockMvc.perform(delete("/api/v1/medications"))
+            .andExpect(status().isUnauthorized)
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE id=?", Int::class.java, medicationId))
+
+        mockMvc.perform(delete("/api/v1/medications").header("Authorization", authorization))
+            .andExpect(status().isNoContent)
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE id=?", Int::class.java, medicationId))
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE medication_id=?", Int::class.java, medicationId))
+        mockMvc.perform(get("/api/v1/medications").param("date", "2026-09-27").header("Authorization", authorization))
+            .andExpect(status().isForbidden)
+            .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
+        mockMvc.perform(delete("/api/v1/medications/$medicationId").header("Authorization", authorization))
+            .andExpect(status().isForbidden)
+            .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
+        mockMvc.perform(
+            post("/api/v1/medications")
+                .header("Authorization", authorization)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"새 약","dosage":"1","times":["08:00"],"type":"tablet","days":["mon"]}"""),
+        )
+            .andExpect(status().isForbidden)
+            .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
+    }
+
+    @Test
     fun `health는 동의 없이 접근할 수 있다`() {
         mockMvc.perform(get("/actuator/health"))
             .andExpect(status().isOk)

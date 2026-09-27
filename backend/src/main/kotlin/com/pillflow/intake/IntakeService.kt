@@ -2,6 +2,7 @@ package com.pillflow.intake
 
 import com.pillflow.common.parseApiDate
 import com.pillflow.common.parseApiUuid
+import com.pillflow.consent.ConsentRepository
 import com.pillflow.medication.MedicationService
 import java.util.UUID
 import org.springframework.stereotype.Service
@@ -11,9 +12,11 @@ import org.springframework.transaction.annotation.Transactional
 class IntakeService(
     private val medicationService: MedicationService,
     private val logs: MedicationLogRepository,
+    private val consents: ConsentRepository,
 ) {
     @Transactional
     fun take(userId: UUID, medicationIdValue: String, dateValue: String) {
+        consents.lockAndRequireCurrentConsent(userId)
         val medicationId = parseApiUuid(medicationIdValue)
         val date = parseApiDate(dateValue)
         medicationService.requireOwned(userId, medicationId)

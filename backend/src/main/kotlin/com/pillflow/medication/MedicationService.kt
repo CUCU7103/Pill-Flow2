@@ -28,6 +28,7 @@ class MedicationService(
 
     @Transactional
     fun create(userId: UUID, request: MedicationRequest): MedicationResponse {
+        consents.lockAndRequireCurrentConsent(userId)
         val input = request.validate()
         val medication = medications.saveAndFlush(
             Medication(
@@ -53,6 +54,7 @@ class MedicationService(
 
     @Transactional
     fun deleteAll(userId: UUID) {
+        consents.lockUserForDataReset(userId)
         medications.deleteAllByUserId(userId)
         consents.deleteSensitiveConsents(userId)
     }

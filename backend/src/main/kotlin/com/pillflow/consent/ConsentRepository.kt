@@ -1,7 +1,10 @@
 package com.pillflow.consent
 
+import com.pillflow.common.BusinessException
+import com.pillflow.common.ErrorCode
 import java.util.UUID
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.core.RowCallbackHandler
 import org.springframework.stereotype.Repository
 
 @Repository
@@ -39,6 +42,17 @@ class ConsentRepository(private val jdbc: JdbcTemplate) {
         return jdbc.queryForObject(sql, Boolean::class.java, *parameters) ?: false
     }
 
+    fun lockAndRequireCurrentConsent(userId: UUID) {
+        lockUserForDataMutation(userId)
+        if (!hasRequiredConsents(userId, CURRENT_POLICY_VERSION)) {
+            throw BusinessException(ErrorCode.CONSENT_REQUIRED)
+        }
+    }
+
+    fun lockUserForDataReset(userId: UUID) {
+        lockUserForDataMutation(userId)
+    }
+
     fun insert(userId: UUID, type: ConsentType, policyVersion: String) {
         jdbc.update(
             """
@@ -65,6 +79,14 @@ class ConsentRepository(private val jdbc: JdbcTemplate) {
         private val REQUIRED_TYPES = listOf(
             ConsentType.AGE_OVER_14.databaseValue,
             ConsentType.SENSITIVE_HEALTH.databaseValue,
+        )
+    }
+
+    private fun lockUserForDataMutation(userId: UUID) {
+        jdbc.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended(?::text, 0))",
+            RowCallbackHandler { },
+            userId.toString(),
         )
     }
 }

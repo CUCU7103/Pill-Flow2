@@ -1,9 +1,14 @@
 package com.pillflow
 
+import com.pillflow.common.BusinessException
+import com.pillflow.common.ErrorCode
+import com.pillflow.intake.IntakeService
 import com.pillflow.intake.MedicationLog
 import com.pillflow.intake.MedicationLogRepository
 import com.pillflow.medication.Medication
+import com.pillflow.medication.MedicationRequest
 import com.pillflow.medication.MedicationRepository
+import com.pillflow.medication.MedicationService
 import com.pillflow.medication.MedicationType
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.assertThrows
@@ -69,6 +74,8 @@ import com.pillflow.security.supabaseJwtValidator
 class BackendIntegrationTest @Autowired constructor(
     private val medications: MedicationRepository,
     private val logs: MedicationLogRepository,
+    private val medicationService: MedicationService,
+    private val intakeService: IntakeService,
     private val jdbc: JdbcTemplate,
     private val mockMvc: MockMvc,
 ) {
@@ -85,6 +92,38 @@ class BackendIntegrationTest @Autowired constructor(
             registry.add("CORS_ALLOWED_ORIGINS") { "https://client.test" }
         }
     }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `복약 생성과 복용 기록 서비스는 현재 동의가 없으면 직접 호출도 거부한다`() {
+        val userId = UUID.randomUUID()
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?)", userId)
+        val request = MedicationRequest(
+            name = "동의 잠금 약",
+            dosage = "1",
+            times = listOf("08:00"),
+            type = "tablet",
+            days = listOf("mon"),
+        )
+
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'age_over_14','2026-09-27'), (?,'sensitive_health','2026-09-27')",
+            userId,
+            userId,
+        )
+        val created = medicationService.create(userId, request)
+        intakeService.take(userId, created.id, "2026-09-27")
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE user_id=?", Int::class.java, userId))
+
+        jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", userId)
+        val createFailure = assertThrows<BusinessException> { medicationService.create(userId, request) }
+        val takeFailure = assertThrows<BusinessException> { intakeService.take(userId, created.id, "2026-09-28") }
+        assertEquals(ErrorCode.CONSENT_REQUIRED, createFailure.errorCode)
+        assertEquals(ErrorCode.CONSENT_REQUIRED, takeFailure.errorCode)
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, userId))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE user_id=?", Int::class.java, userId))
+    }
+
     @Test fun `엔티티 배열과 enum을 저장하고 조회한다`() {
         val user = UUID.randomUUID()
         jdbc.update("INSERT INTO auth.users (id) VALUES (?)", user)
