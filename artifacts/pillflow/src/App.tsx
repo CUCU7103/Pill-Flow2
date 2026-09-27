@@ -58,7 +58,7 @@ export default function App() {
   const handleConsentRequired = useCallback(() => {
     const decision = transitionConsentGuard(
       "consent_required",
-      consent.loading || reloadingConsentRef.current,
+      reloadingConsentRef.current,
       consentRequiredCount.current,
     );
     consentRequiredCount.current = decision.consecutiveFailures;
@@ -71,7 +71,7 @@ export default function App() {
     void consent.reload().finally(() => {
       reloadingConsentRef.current = false;
     });
-  }, [consent.loading, consent.reload]);
+  }, [consent.reload]);
 
   const handleMedicationQuerySucceeded = useCallback(() => {
     const decision = transitionConsentGuard("medications_loaded", false, consentRequiredCount.current);
@@ -94,6 +94,15 @@ export default function App() {
     });
   }, [consent.reload]);
 
+  const handleMedicationReset = useCallback(() => {
+    consentRequiredCount.current = 0;
+    setConsentGuardError(false);
+    reloadingConsentRef.current = true;
+    void consent.reload().finally(() => {
+      reloadingConsentRef.current = false;
+    });
+  }, [consent.reload]);
+
   const recordPhotoConsent = useCallback(() => consent.save(["photo_analysis"]), [consent.save]);
 
   // Google OAuth 세션 확인 중
@@ -103,7 +112,18 @@ export default function App() {
   if (!user) return <LoginView onSignIn={signInWithGoogle} />;
   if (consent.loading) return <LoadingSpinner />;
 
-  if (consent.error || consentGuardError) {
+  if (consent.status && !isConsentComplete(consent.status)) {
+    return (
+      <ConsentView
+        status={consent.status}
+        dark={dark}
+        onAgree={handleConsentAgree}
+        onSignOut={signOut}
+      />
+    );
+  }
+
+  if ((!consent.status && consent.error) || consentGuardError) {
     return (
       <main className="min-h-full bg-pf-bg flex items-center justify-center px-6">
         <div className="w-full max-w-sm rounded-3xl bg-pf-card border border-pf-divider p-6 text-center">
@@ -142,6 +162,7 @@ export default function App() {
       onPhotoConsent={recordPhotoConsent}
       onConsentRequired={handleConsentRequired}
       onMedicationQuerySucceeded={handleMedicationQuerySucceeded}
+      onMedicationReset={handleMedicationReset}
     />
   );
 }
@@ -156,6 +177,7 @@ function AuthenticatedApp({
   onPhotoConsent,
   onConsentRequired,
   onMedicationQuerySucceeded,
+  onMedicationReset,
 }: {
   user: User;
   dark: boolean;
@@ -165,6 +187,7 @@ function AuthenticatedApp({
   onPhotoConsent: () => Promise<unknown>;
   onConsentRequired: () => void;
   onMedicationQuerySucceeded: () => void;
+  onMedicationReset: () => void;
 }) {
   const reduceMotion = useReducedMotion();
   const [view, setView] = useState<View>("today");
@@ -178,6 +201,11 @@ function AuthenticatedApp({
   // Supabase 기반 약 데이터 (로그인 후에만 사용)
   // user.id를 전달해 RLS insert 시 user_id가 포함되도록 함
   const { meds, loading: medsLoading, error: medsError, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user.id, onConsentRequired);
+
+  const handleResetAll = useCallback(async () => {
+    await resetAll();
+    onMedicationReset();
+  }, [resetAll, onMedicationReset]);
 
   useEffect(() => {
     if (!medsLoading && !medsError) onMedicationQuerySucceeded();
@@ -338,7 +366,7 @@ function AuthenticatedApp({
             onToggleNotif={handleToggleNotif}
             user={user}
             onSignOut={handleSignOut}
-            onResetAll={resetAll}
+            onResetAll={handleResetAll}
           />
         )}
       </AnimatePresence>

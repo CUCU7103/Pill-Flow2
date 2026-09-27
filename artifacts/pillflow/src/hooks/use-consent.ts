@@ -6,31 +6,41 @@ type ConsentState = {
   userId: string | null;
   status: ConsentStatus | null;
   loading: boolean;
+  revalidating: boolean;
   error: string | null;
 };
 
 /** 로그인 사용자의 현재 처리방침 동의 상태를 조회·기록한다. */
 export function useConsent(userId?: string | null) {
-  const [state, setState] = useState<ConsentState>({ userId: null, status: null, loading: true, error: null });
+  const [state, setState] = useState<ConsentState>({ userId: null, status: null, loading: true, revalidating: false, error: null });
   const requestVersion = useRef(0);
   const latestUserId = useRef(userId);
+  const stateRef = useRef(state);
   latestUserId.current = userId;
+  stateRef.current = state;
 
   const reload = useCallback(async (targetUserId = userId) => {
     if (!targetUserId) return;
     const requestVersionAtStart = ++requestVersion.current;
-    setState({ userId: targetUserId, status: null, loading: true, error: null });
+    setState((current) => current.userId === targetUserId && current.status !== null
+      ? { ...current, loading: false, revalidating: true, error: null }
+      : { userId: targetUserId, status: null, loading: true, revalidating: false, error: null });
     try {
       const status = await fetchConsentStatus(targetUserId);
       if (requestVersionAtStart !== requestVersion.current) return;
-      setState({ userId: targetUserId, status, loading: false, error: null });
+      setState({ userId: targetUserId, status, loading: false, revalidating: false, error: null });
     } catch (error) {
       if (requestVersionAtStart !== requestVersion.current) return;
-      setState({
-        userId: targetUserId,
-        status: null,
-        loading: false,
-        error: error instanceof Error ? error.message : "동의 상태를 불러오지 못했어요.",
+      const message = error instanceof Error ? error.message : "동의 상태를 불러오지 못했어요.";
+      setState((current) => {
+        const preserveStatus = current.userId === targetUserId && current.status !== null;
+        return {
+          userId: targetUserId,
+          status: preserveStatus ? current.status : null,
+          loading: !preserveStatus,
+          revalidating: false,
+          error: message,
+        };
       });
     }
   }, [userId]);
@@ -40,7 +50,7 @@ export function useConsent(userId?: string | null) {
   useEffect(() => {
     if (!userId) {
       requestVersion.current++;
-      setState({ userId: null, status: null, loading: false, error: null });
+      setState({ userId: null, status: null, loading: false, revalidating: false, error: null });
       return;
     }
     void reload(userId);
@@ -48,10 +58,15 @@ export function useConsent(userId?: string | null) {
 
   const save = useCallback(async (types: ConsentType[]) => {
     if (!userId) throw new Error("로그인이 필요합니다.");
-    const requestVersionAtStart = ++requestVersion.current;
     const status = await recordConsents(userId, types);
-    if (requestVersionAtStart === requestVersion.current && latestUserId.current === userId) {
-      setState({ userId, status, loading: false, error: null });
+    if (latestUserId.current === userId) {
+      setState((current) => ({
+        userId,
+        status: { ...(current.userId === userId ? current.status : null), ...status },
+        loading: false,
+        revalidating: false,
+        error: null,
+      }));
     }
     return status;
   }, [userId]);
@@ -60,6 +75,7 @@ export function useConsent(userId?: string | null) {
   return {
     status: stateMatchesUser ? state.status : null,
     loading: Boolean(userId && (!stateMatchesUser || state.loading)),
+    revalidating: stateMatchesUser && state.revalidating,
     error: stateMatchesUser ? state.error : null,
     reload: reloadCurrentUser,
     save,

@@ -31,9 +31,9 @@ export function useNotifications(
     if (!Capacitor.isNativePlatform()) return;
 
     if (notif) {
-      scheduleNotifications(meds, categories);
+      void scheduleNotifications(meds, categories);
     } else {
-      cancelAllNotifications();
+      void cancelAllNotifications();
     }
     // 객체 참조 대신 원시값으로 풀어서 불필요한 재실행 방지
   }, [meds, notif, categories.morning, categories.lunch, categories.evening]);
@@ -59,7 +59,6 @@ export function useNotifications(
 
     // 로그아웃·계정 전환·필수 동의 해제로 앱 본체가 내려가면 이전 사용자의 예약 알림을 취소한다.
     return () => {
-      scheduleGeneration++;
       void cancelAllNotifications();
     };
   }, []);
@@ -92,7 +91,7 @@ async function ensureNotificationChannel() {
 
 /** 모든 기존 알림을 취소하고 현재 약 목록으로 재스케줄링 */
 async function scheduleNotifications(meds: Medication[], categories: NotifCategories) {
-  const generation = scheduleGeneration;
+  const generation = ++scheduleGeneration;
   const isCurrentGeneration = () => generation === scheduleGeneration;
 
   try {
@@ -108,7 +107,7 @@ async function scheduleNotifications(meds: Medication[], categories: NotifCatego
     if (!isCurrentGeneration()) return;
 
     // 기존 알림을 모두 취소하고 새로 스케줄링 (중복 방지)
-    await cancelAllNotifications();
+    await cancelPendingNotifications(generation);
     if (!isCurrentGeneration()) return;
 
     // 요일이 있는 약만 스케줄링 (완료 여부는 무시 — 내일도 다시 울려야 함)
@@ -118,13 +117,10 @@ async function scheduleNotifications(meds: Medication[], categories: NotifCatego
 
     const notifications = buildMedicationNotifications(activeMeds, categories, CHANNEL_ID);
 
-    if (notifications.length === 0) return;
-    if (!isCurrentGeneration()) return;
+    if (notifications.length === 0 || !isCurrentGeneration()) return;
 
     await LocalNotifications.schedule({ notifications });
-    if (!isCurrentGeneration()) {
-      await LocalNotifications.cancel({ notifications: notifications.map(({ id }) => ({ id })) });
-    }
+    if (!isCurrentGeneration()) return;
   } catch (error) {
     // 알림 권한 거부나 API 오류는 앱 동작에 영향 없이 무시
     console.warn("[PillFlow] 알림 스케줄링 실패:", error);
@@ -143,9 +139,15 @@ async function logExactAlarmSetting() {
 }
 
 /** 모든 예약된 로컬 알림 취소 */
-async function cancelAllNotifications() {
+function cancelAllNotifications() {
+  const generation = ++scheduleGeneration;
+  return cancelPendingNotifications(generation);
+}
+
+async function cancelPendingNotifications(generation?: number) {
   try {
     const { notifications } = await LocalNotifications.getPending();
+    if (generation !== undefined && generation !== scheduleGeneration) return;
     if (notifications.length > 0) {
       await LocalNotifications.cancel({ notifications });
     }
