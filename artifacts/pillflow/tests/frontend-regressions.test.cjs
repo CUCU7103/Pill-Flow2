@@ -1102,7 +1102,7 @@ function elements(node) {
   return [node, ...elements(node.props?.children)];
 }
 
-for (const [dosage, valid] of [['', false], ['0', false], ['-1', false], ['1', true], ['0.5', true]]) {
+for (const [dosage, valid] of [['', false], ['0', false], ['-1', false], ['1', true], ['0.5', true], ['1'.repeat(20), true], ['1'.repeat(21), false]]) {
   test(`dosage ${JSON.stringify(dosage)} ${valid ? 'allows' : 'blocks'} progression and direct save`, async () => {
     let saves = 0;
     const states = [1, undefined, '테스트약', 'tablet', dosage, '#fff', ['08:00'], [0], null, '', false];
@@ -1121,7 +1121,7 @@ for (const [dosage, valid] of [['', false], ['0', false], ['-1', false], ['1', t
       '@/hooks/use-theme': { useTheme: () => ({}) },
       '@/components/common/FormField': {},
       '@/components/modals/TimePicker': {},
-      '@/constants': { MED_COLORS: ['#fff'], DAY_KEYS_MON_FIRST: ['mon'] },
+      '@/constants': { MED_COLORS: ['#fff'], DAY_KEYS_MON_FIRST: ['mon'], MED_INPUT_LIMITS: { name: 100, memo: 1000, dosageDigits: 20 } },
       '@/types': load('types/index.ts'),
     });
     const render = () => AddView({ onBack() {}, onSave: async () => { saves++; }, dark: false });

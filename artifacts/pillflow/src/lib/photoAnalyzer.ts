@@ -88,6 +88,7 @@ export async function analyzeMedicationPhoto(
       const status = error.context?.status ?? 0;
       if (status === 401 || status === 403) throw new Error("로그인이 만료됐어요. 다시 로그인해주세요.");
       if (status === 413) throw new Error("이미지가 너무 커요. 더 작은 사진을 사용해주세요.");
+      if (status === 429) throw new Error("사진 분석 요청이 너무 많아요. 잠시 후 다시 시도해주세요.");
       if (status === 504 || status === 408) throw new Error("분석 서버 응답이 너무 늦어요. 잠시 후 다시 시도해주세요.");
       if (status >= 500) throw new Error("분석 서버에 일시적 문제가 생겼어요. 잠시 후 다시 시도해주세요.");
     }

@@ -250,6 +250,69 @@ class MedicationApiIntegrationTest : ApiIntegrationTestSupport() {
             .andExpect(status().isBadRequest).andExpect(jsonPath("$.code").isString).andExpect(jsonPath("$.message").isString)
     }
 
+    @Test
+    fun `SEC-04 약 입력은 상한까지만 저장하고 초과·중복 요일·잘못된 색상은 400이다`() {
+        val userId = UUID.randomUUID()
+        grantConsent(userId)
+        val authorization = authorization(userId)
+        fun body(
+            name: String = "약",
+            dosage: String = "1",
+            memo: String = "",
+            color: String = "#6C63FF",
+            days: String = "\"mon\"",
+        ) = """{"name":"$name","dosage":"$dosage","memo":"$memo","times":["08:00"],"type":"tablet","color":"$color","days":[$days]}"""
+        fun create(content: String) = mockMvc.perform(
+            post("/api/v1/medications")
+                .header("Authorization", authorization)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(content),
+        )
+
+        // 정확히 상한인 값은 저장된다
+        create(body(name = "가".repeat(100), dosage = "1".repeat(50), memo = "메".repeat(1000), color = "#abcdef"))
+            .andExpect(status().isCreated)
+        create(body(days = "\"mon\",\"tue\",\"wed\",\"thu\",\"fri\",\"sat\",\"sun\"")).andExpect(status().isCreated)
+
+        val invalidBodies = listOf(
+            body(name = "가".repeat(101)),
+            body(dosage = "1".repeat(51)),
+            body(memo = "메".repeat(1001)),
+            body(color = "red"),
+            body(color = "#12345"),
+            body(color = "#1234567"),
+            body(days = "\"mon\",\"mon\""),
+            body(days = "\"mon\",\"tue\",\"wed\",\"thu\",\"fri\",\"sat\",\"sun\",\"mon\""),
+        )
+        invalidBodies.forEach { content ->
+            create(content).andExpect(status().isBadRequest).andExpect(jsonPath("$.code").value("INVALID_MEDICATION"))
+        }
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, userId))
+    }
+
+    @Test
+    fun `SEC-04 사용자당 약은 50개까지만 추가할 수 있다`() {
+        val userId = UUID.randomUUID()
+        grantConsent(userId)
+        repeat(49) { index ->
+            jdbc.update(
+                "INSERT INTO public.medications(user_id,name,dosage,type,times,days) VALUES (?,?,'1','tablet','{08:00}','{mon}')",
+                userId,
+                "약$index",
+            )
+        }
+        val content = """{"name":"마지막","dosage":"1","times":["08:00"],"type":"tablet","days":["mon"]}"""
+        mockMvc.perform(
+            post("/api/v1/medications").header("Authorization", authorization(userId))
+                .contentType(MediaType.APPLICATION_JSON).content(content),
+        ).andExpect(status().isCreated)
+        mockMvc.perform(
+            post("/api/v1/medications").header("Authorization", authorization(userId))
+                .contentType(MediaType.APPLICATION_JSON).content(content),
+        ).andExpect(status().isConflict).andExpect(jsonPath("$.code").value("MEDICATION_LIMIT_EXCEEDED"))
+        assertEquals(50, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, userId))
+    }
+
     companion object {
         @Container
         @JvmStatic

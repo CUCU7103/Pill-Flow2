@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import { useTheme } from "@/hooks/use-theme";
 import { FormField } from "@/components/common/FormField";
 import { TimePicker } from "@/components/modals/TimePicker";
-import { MED_COLORS, DAY_KEYS_MON_FIRST } from "@/constants";
+import { MED_COLORS, DAY_KEYS_MON_FIRST, MED_INPUT_LIMITS } from "@/constants";
 import {
   CONSENT_VERSION_UPDATE_MESSAGE,
   isConsentVersionMismatchError,
@@ -134,13 +134,14 @@ export function AddView({
   const t = useTheme(dark);
   const reduceMotion = useReducedMotion();
   const doseUnit = getDoseUnit(type);
-  const validDosage = dosage.trim() !== "" && Number.isFinite(Number(dosage)) && Number(dosage) > 0;
+  const validDosage = dosage.trim() !== "" && dosage.length <= MED_INPUT_LIMITS.dosageDigits && Number.isFinite(Number(dosage)) && Number(dosage) > 0;
 
   // 사진 분석 훅 — 결과가 오면 비어있는 필드만 채운다
   const photo = usePhotoAnalyzer({
     onResult: ({ name: analyzedName, summary }) => {
-      if (!name.trim() && analyzedName) setName(analyzedName);
-      if (!memo.trim() && summary) setMemo(summary);
+      // 서버 입력 상한을 넘지 않도록 분석 결과를 잘라서 채운다
+      if (!name.trim() && analyzedName) setName(analyzedName.slice(0, MED_INPUT_LIMITS.name));
+      if (!memo.trim() && summary) setMemo(summary.slice(0, MED_INPUT_LIMITS.memo));
       if (!analyzedName) {
         toast.info("약 이름을 식별하지 못했어요. 직접 입력해주세요.");
         // 식별 실패 시 이름 필드로 포커스 이동 (toast 렌더링 이후 포커스가 가도록 50ms 지연)
@@ -265,8 +266,11 @@ export function AddView({
         days: selectedDays,
       });
       onBack();
-    } catch {
-      toast.error("약 추가에 실패했습니다. 다시 시도해주세요.");
+    } catch (err) {
+      // 등록 개수 상한 초과는 서버가 보낸 안내 문구를 그대로 보여준다
+      const isLimitExceeded =
+        err instanceof Error && (err as Error & { code?: unknown }).code === "MEDICATION_LIMIT_EXCEEDED";
+      toast.error(isLimitExceeded ? err.message : "약 추가에 실패했습니다. 다시 시도해주세요.");
     } finally {
       setSaving(false);
     }
@@ -366,6 +370,7 @@ export function AddView({
                   <Pill size={18} style={{ color: "var(--pf-accent)" }} />
                   <input
                     ref={nameInputRef}
+                    maxLength={MED_INPUT_LIMITS.name}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     onKeyDown={(e) => {
@@ -665,6 +670,7 @@ export function AddView({
               {/* 메모 */}
               <FormField label="복용 메모 (선택)" cardBg={t.card} accentColor="var(--pf-accent)">
                 <textarea
+                  maxLength={MED_INPUT_LIMITS.memo}
                   value={memo}
                   onChange={(e) => setMemo(e.target.value)}
                   aria-label="복용 메모"

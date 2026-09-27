@@ -24,6 +24,8 @@ enum class ErrorCode(val status: HttpStatus, val message: String) {
     INVALID_DATE(HttpStatus.BAD_REQUEST, "날짜 형식이 올바르지 않습니다."),
     INVALID_TIMEZONE(HttpStatus.BAD_REQUEST, "시간대가 올바르지 않습니다."),
     MEDICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "약을 찾을 수 없습니다."),
+    // 문구의 50은 MedicationService의 MAX_MEDICATIONS_PER_USER와 함께 바꾼다.
+    MEDICATION_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "등록할 수 있는 약은 최대 50개입니다."),
     CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "복약 정보 처리에 대한 동의가 필요합니다."),
     CONSENT_VERSION_MISMATCH(HttpStatus.BAD_REQUEST, "처리방침 버전이 일치하지 않습니다."),
     INVALID_CONSENT(HttpStatus.BAD_REQUEST, "동의 항목이 올바르지 않습니다.")

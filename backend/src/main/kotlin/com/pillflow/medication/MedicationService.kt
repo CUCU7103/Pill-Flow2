@@ -12,6 +12,13 @@ import org.springframework.transaction.annotation.Transactional
 
 private val TIME_PATTERN = Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")
 private val VALID_DAYS = setOf("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+private val COLOR_PATTERN = Regex("#[0-9A-Fa-f]{6}")
+
+// 입력 크기 상한 — V4__medication_input_limits.sql의 DB 제약, 프론트 constants.ts의 MED_INPUT_LIMITS와 같은 값을 유지한다.
+internal const val MAX_NAME_LENGTH = 100
+internal const val MAX_DOSAGE_LENGTH = 50
+internal const val MAX_MEMO_LENGTH = 1000
+internal const val MAX_MEDICATIONS_PER_USER = 50
 
 @Service
 class MedicationService(
@@ -30,6 +37,11 @@ class MedicationService(
     fun create(userId: UUID, request: MedicationRequest): MedicationResponse {
         consents.lockAndRequireCurrentConsent(userId)
         val input = request.validate()
+        // lockAndRequireCurrentConsent의 사용자별 advisory lock으로 같은 사용자의 추가 요청이 직렬화되므로
+        // 개수 확인과 저장 사이에 경합이 없다.
+        if (medications.countByUserId(userId) >= MAX_MEDICATIONS_PER_USER) {
+            throw BusinessException(ErrorCode.MEDICATION_LIMIT_EXCEEDED)
+        }
         val medication = medications.saveAndFlush(
             Medication(
                 userId = userId,
@@ -80,6 +92,17 @@ class MedicationService(
         if (validatedName.isNullOrEmpty() || validatedDosage.isNullOrEmpty()) {
             throw BusinessException(ErrorCode.INVALID_MEDICATION)
         }
+        if (validatedName.length > MAX_NAME_LENGTH || validatedDosage.length > MAX_DOSAGE_LENGTH) {
+            throw BusinessException(ErrorCode.INVALID_MEDICATION)
+        }
+        val validatedMemo = memo ?: ""
+        if (validatedMemo.length > MAX_MEMO_LENGTH) {
+            throw BusinessException(ErrorCode.INVALID_MEDICATION)
+        }
+        val validatedColor = color ?: "#6C63FF"
+        if (!COLOR_PATTERN.matches(validatedColor)) {
+            throw BusinessException(ErrorCode.INVALID_MEDICATION)
+        }
 
         val validatedTimes = times
         if (validatedTimes == null || validatedTimes.size !in 1..4 || validatedTimes.any { it == null || !TIME_PATTERN.matches(it) }) {
@@ -87,7 +110,10 @@ class MedicationService(
         }
 
         val validatedDays = days
-        if (validatedDays == null || validatedDays.isEmpty() || validatedDays.any { it == null || it !in VALID_DAYS }) {
+        if (
+            validatedDays == null || validatedDays.isEmpty() || validatedDays.any { it == null || it !in VALID_DAYS } ||
+            validatedDays.toSet().size != validatedDays.size
+        ) {
             throw BusinessException(ErrorCode.INVALID_MEDICATION)
         }
 
@@ -102,10 +128,10 @@ class MedicationService(
         return ValidatedMedication(
             name = validatedName,
             dosage = validatedDosage,
-            memo = memo ?: "",
+            memo = validatedMemo,
             times = validatedTimes.filterNotNull(),
             type = validatedType,
-            color = color ?: "#6C63FF",
+            color = validatedColor,
             days = validatedDays.filterNotNull(),
         )
     }
