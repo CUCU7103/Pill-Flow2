@@ -18,11 +18,13 @@ import {
 } from "lucide-react";
 import { usePhotoAnalyzer } from "@/hooks/use-photo-analyzer";
 import { PhotoAnalyzeBadge } from "@/components/common/PhotoAnalyzeBadge";
+import { PhotoConsentModal } from "@/components/modals/PhotoConsentModal";
 import { toast } from "sonner";
 import { useTheme } from "@/hooks/use-theme";
 import { FormField } from "@/components/common/FormField";
 import { TimePicker } from "@/components/modals/TimePicker";
 import { MED_COLORS, DAY_KEYS_MON_FIRST } from "@/constants";
+import { needsPhotoConsent } from "@/lib/consentUtils";
 import type { Medication, MedType } from "@/types";
 import { getDoseUnit } from "@/types";
 
@@ -83,10 +85,14 @@ export function AddView({
   onBack,
   onSave,
   dark,
+  photoAnalysis,
+  onPhotoConsent,
 }: {
   onBack: () => void;
   onSave: (m: NewMedication) => Promise<void>;
   dark: boolean;
+  photoAnalysis: boolean;
+  onPhotoConsent: () => Promise<unknown>;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -115,6 +121,9 @@ export function AddView({
 
   // Step 3
   const [memo, setMemo] = useState("");
+  const [photoConsentOpen, setPhotoConsentOpen] = useState(false);
+  const [photoConsentSaving, setPhotoConsentSaving] = useState(false);
+  const [photoConsentError, setPhotoConsentError] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const t = useTheme(dark);
@@ -136,6 +145,30 @@ export function AddView({
       }
     },
   });
+
+  const handleCameraClick = useCallback(() => {
+    if (needsPhotoConsent(photoAnalysis)) {
+      setPhotoConsentError(null);
+      setPhotoConsentOpen(true);
+      return;
+    }
+    void photo.start();
+  }, [photoAnalysis, photo.start]);
+
+  const handlePhotoConsent = useCallback(async () => {
+    if (photoConsentSaving) return;
+    setPhotoConsentSaving(true);
+    setPhotoConsentError(null);
+    try {
+      await onPhotoConsent();
+      setPhotoConsentOpen(false);
+      await photo.start();
+    } catch {
+      setPhotoConsentError("동의를 저장하지 못했어요. 다시 시도해 주세요.");
+    } finally {
+      setPhotoConsentSaving(false);
+    }
+  }, [photoConsentSaving, onPhotoConsent, photo.start]);
 
   /** 해당 슬롯에 이미 선택된 시간 찾기 */
   const getSlotTime = useCallback((slot: TimeSlot): string | undefined => {
@@ -256,7 +289,7 @@ export function AddView({
           {/* 카메라 버튼 — Step 1에서만 표시 */}
           {step === 1 && (
             <button
-              onClick={photo.start}
+              onClick={handleCameraClick}
               disabled={
                 photo.status !== "idle" &&
                 photo.status !== "done" &&
@@ -658,6 +691,17 @@ export function AddView({
             initialTime={pickerFor.initialTime}
             minHour={pickerFor.minHour}
             maxHour={pickerFor.maxHour}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {photoConsentOpen && (
+          <PhotoConsentModal
+            saving={photoConsentSaving}
+            error={photoConsentError}
+            onAgree={() => void handlePhotoConsent()}
+            onCancel={() => setPhotoConsentOpen(false)}
           />
         )}
       </AnimatePresence>

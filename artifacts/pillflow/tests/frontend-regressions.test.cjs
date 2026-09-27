@@ -64,6 +64,7 @@ function medicationsRuntime(persist) {
   const { useMedications } = load('hooks/use-medications.ts', {
     react: runtime.react,
     '@/lib/medicationDataSource': { fetchMedications: () => new Promise(() => {}), toggleMedicationLog: persist },
+    '@/lib/consentUtils': { isConsentRequiredError: error => error?.code === 'CONSENT_REQUIRED' },
   });
   const hook = runtime.render(() => useMedications('user-1'));
   return { runtime, hook };
@@ -109,6 +110,50 @@ test('API client requires a session and adds JSON content type only for JSON bod
   assert.equal(result, undefined);
   assert.equal(request.init.headers.Authorization, 'Bearer jwt-token');
   assert.equal(request.init.headers['Content-Type'], 'application/json');
+});
+
+test('API client preserves the error code and HTTP status from a 403 response', async () => {
+  const client = loadApiClient({ access_token: 'jwt-token' }, async () => ({
+    ok: false,
+    status: 403,
+    json: async () => ({ code: 'CONSENT_REQUIRED', message: '복약 정보 처리에 대한 동의가 필요합니다.' }),
+  }));
+
+  await assert.rejects(
+    client.apiRequest('/api/v1/medications'),
+    error => error instanceof Error && error.message === '복약 정보 처리에 대한 동의가 필요합니다.' && error.code === 'CONSENT_REQUIRED' && error.status === 403,
+  );
+});
+
+test('consent API repository uses the expected URL, methods, and policy-version body', async () => {
+  const calls = [];
+  const repository = load('lib/consentApiRepository.ts', {
+    '@/lib/apiClient': { apiRequest: async (...args) => { calls.push(args); return { policyVersion: '2026-09-27', ageOver14: true, sensitiveHealth: true, photoAnalysis: false }; } },
+    '@/lib/consentUtils': { POLICY_VERSION: '2026-09-27' },
+  });
+
+  await repository.fetchConsentStatus('user-1');
+  await repository.recordConsents('user-1', ['age_over_14', 'sensitive_health']);
+
+  assert.deepEqual(calls, [
+    ['/api/v1/consents'],
+    ['/api/v1/consents', {
+      method: 'POST',
+      body: JSON.stringify({ policyVersion: '2026-09-27', types: ['age_over_14', 'sensitive_health'] }),
+    }],
+  ]);
+});
+
+test('consent decisions require both required checks and request photo consent independently', () => {
+  const consent = load('lib/consentUtils.ts');
+  assert.equal(consent.canStartWithConsent(false, false), false);
+  assert.equal(consent.canStartWithConsent(true, false), false);
+  assert.equal(consent.canStartWithConsent(false, true), false);
+  assert.equal(consent.canStartWithConsent(true, true), true);
+  assert.equal(consent.isConsentComplete({ ageOver14: true, sensitiveHealth: true }), true);
+  assert.equal(consent.isConsentComplete({ ageOver14: true, sensitiveHealth: false }), false);
+  assert.equal(consent.needsPhotoConsent(false), true);
+  assert.equal(consent.needsPhotoConsent(true), false);
 });
 
 test('medication API repository uses local dates and intake HTTP methods', async () => {
@@ -216,6 +261,8 @@ for (const [dosage, valid] of [['', false], ['0', false], ['-1', false], ['1', t
       'lucide-react': {},
       '@/hooks/use-photo-analyzer': { usePhotoAnalyzer: () => ({ status: 'idle' }) },
       '@/components/common/PhotoAnalyzeBadge': {},
+      '@/components/modals/PhotoConsentModal': {},
+      '@/lib/consentUtils': { needsPhotoConsent: value => !value },
       sonner: { toast: { error() {} } },
       '@/hooks/use-theme': { useTheme: () => ({}) },
       '@/components/common/FormField': {},
