@@ -187,10 +187,23 @@ class BackendIntegrationTest @Autowired constructor(
         listOf("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER").forEach { privilege ->
             assertEquals(false, hasPrivilege("anon", "user_consents", privilege), "anon $privilege user_consents")
         }
+        assertEquals(true, hasPrivilege("authenticated", "user_consents", "SELECT"), "authenticated SELECT user_consents")
+        assertEquals(false, hasPrivilege("authenticated", "user_consents", "INSERT"), "authenticated has column-only INSERT on user_consents")
         listOf("SELECT", "INSERT").forEach { privilege ->
-            assertEquals(true, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
             assertEquals(true, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
         }
+        listOf("user_id", "consent_type", "policy_version").forEach { column ->
+            assertEquals(
+                true,
+                jdbc.queryForObject(
+                    "SELECT has_column_privilege('authenticated', 'public.user_consents', ?, 'INSERT')",
+                    Boolean::class.java,
+                    column,
+                ),
+                "authenticated can insert user_consents.$column",
+            )
+        }
+        assertEquals(false, jdbc.queryForObject("SELECT has_column_privilege('authenticated', 'public.user_consents', 'agreed_at', 'INSERT')", Boolean::class.java))
         listOf("DELETE").forEach { privilege ->
             assertEquals(true, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
             assertEquals(true, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
@@ -355,10 +368,29 @@ class BackendIntegrationTest @Autowired constructor(
             "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27')",
             owner,
         )
+        assertEquals(
+            0,
+            jdbc.update(
+                "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27') ON CONFLICT (user_id,consent_type,policy_version) DO NOTHING",
+                owner,
+            ),
+        )
         assertInsufficientPrivilegeSqlState {
             jdbc.update(
                 "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27')",
                 other,
+            )
+        }
+        assertInsufficientPrivilegeSqlState {
+            jdbc.update(
+                "INSERT INTO public.user_consents(user_id,consent_type,policy_version,agreed_at) VALUES (?,'photo_analysis','2026-09-27','2000-01-01T00:00:00Z')",
+                owner,
+            )
+        }
+        assertInsufficientPrivilegeSqlState {
+            jdbc.update(
+                "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'photo_analysis','2027-09-27')",
+                owner,
             )
         }
         assertInsufficientPrivilegeSqlState {

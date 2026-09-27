@@ -10,13 +10,15 @@ CREATE TABLE public.user_consents (
 ALTER TABLE public.user_consents ENABLE ROW LEVEL SECURITY;
 -- Supabase 기본 권한이 새 테이블에 anon·authenticated의 ALL을 부여하므로 회수한 뒤 필요한 권한만 다시 준다.
 REVOKE ALL ON public.user_consents FROM anon, authenticated;
-GRANT SELECT, INSERT ON public.user_consents TO authenticated;
+GRANT SELECT ON public.user_consents TO authenticated;
+GRANT INSERT (user_id, consent_type, policy_version) ON public.user_consents TO authenticated;
 GRANT DELETE ON public.user_consents TO authenticated;
 
 CREATE POLICY user_consents_select ON public.user_consents FOR SELECT TO authenticated
   USING ((select auth.uid()) = user_id);
 CREATE POLICY user_consents_insert ON public.user_consents FOR INSERT TO authenticated
-  WITH CHECK ((select auth.uid()) = user_id);
+  WITH CHECK ((select auth.uid()) = user_id AND policy_version = '2026-09-27');
+-- 정책 버전을 올릴 때는 새 마이그레이션에서 이 INSERT 정책의 버전도 함께 갱신한다.
 CREATE POLICY user_consents_delete ON public.user_consents FOR DELETE TO authenticated
   USING ((select auth.uid()) = user_id AND consent_type IN ('sensitive_health','photo_analysis'));
 
