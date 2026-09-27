@@ -1,6 +1,6 @@
 # PillFlow Kotlin 백엔드 기반
 
-Spring Boot 4.0.8 + Kotlin 기반 독립 Gradle 프로젝트다. 현재 앱은 Supabase Auth와 PostgREST에 직접 연결하며 이 서버는 전환을 위한 기반 단계다. 제공 API는 인증 확인용 `GET /api/v1/me`와 Actuator health이며, 복약 API와 앱 전환은 포함하지 않는다.
+Spring Boot 4.0.8 + Kotlin 기반 독립 Gradle 프로젝트다. 로그인은 Supabase Auth를 유지하고, 앱의 약·복용·통계 데이터는 이 API 또는 기존 PostgREST 경로를 빌드 시 선택한다. API는 JWT `sub`를 기준으로 사용자 소유권을 확인한다.
 
 ## 요구 환경과 실행
 
@@ -16,6 +16,22 @@ set -a && source .env && set +a  # Spring Boot는 .env를 자동으로 읽지 �
 ```
 
 `DB_URL`은 JDBC URL(`jdbc:postgresql://...`)이다. 앱 런타임 datasource 사용자(`DB_USERNAME`, 보통 `pillflow_api`)와 Flyway DDL 사용자(`FLYWAY_USERNAME`, 보통 DB role `postgres`)는 분리한다. JWT는 `SUPABASE_URL`에서 JWKS를 받아 ES256 서명, issuer, `authenticated` audience, 만료를 검증한다. JWT 공유 시크릿은 사용하지 않는다. 허용 출처는 `CORS_ALLOWED_ORIGINS`의 쉼표 구분 목록이다.
+
+## REST API
+
+모든 API(health 제외)는 Supabase JWT 인증이 필요하며 성공 응답에는 공통 래퍼를 씌우지 않는다. 사용자 소유권은 JWT의 `sub`로 확인하고, 다른 사용자의 약은 `MEDICATION_NOT_FOUND`(404)로 응답한다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/v1/medications?date=YYYY-MM-DD` | 내 약 목록과 해당 날짜 완료 여부 |
+| POST | `/api/v1/medications` | 약 추가(201) |
+| DELETE | `/api/v1/medications/{id}` | 약 하나 삭제(204) |
+| DELETE | `/api/v1/medications` | 내 약 전체 삭제(204) |
+| PUT | `/api/v1/medications/{id}/intakes/{date}` | 복용 기록 추가(멱등, 204) |
+| DELETE | `/api/v1/medications/{id}/intakes/{date}` | 복용 기록 취소(멱등, 204) |
+| GET | `/api/v1/stats/weekly?today=YYYY-MM-DD&tz=<IANA>` | today 기준 7일 통계 |
+
+입력 오류와 잘못된 JSON은 `{code,message}` 형식의 400으로 응답한다. 통계의 `scheduled`는 약의 요일·생성일·요청 시간대를 반영하며, 예정 약이 없는 날의 `rate`는 `null`이다.
 
 ## 테스트와 Docker
 

@@ -5,12 +5,12 @@ import {
   deleteMedication,
   toggleMedicationLog,
   resetAllMedications,
-} from "@/lib/medicationRepository";
+} from "@/lib/medicationDataSource";
 import type { Medication, MedType } from "@/types";
 
 /**
  * 복약 데이터를 관리하는 훅.
- * DB 접근은 medicationRepository, 데이터 변환은 medicationMapper에 위임한다.
+ * 데이터 소스 선택은 medicationDataSource, 데이터 변환은 각 저장소에 위임한다.
  * @param userId 현재 로그인한 사용자 ID
  */
 export function useMedications(userId?: string | null) {

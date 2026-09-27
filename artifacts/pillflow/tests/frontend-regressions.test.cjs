@@ -45,7 +45,9 @@ function hookRuntime(initialStates = []) {
 
 function load(relativePath, overrides = {}) {
   const filename = path.resolve(__dirname, '../src', relativePath);
-  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const rawSource = fs.readFileSync(filename, 'utf8');
+  const transformedSource = overrides.sourceTransform ? overrides.sourceTransform(rawSource) : rawSource;
+  const source = ts.transpileModule(transformedSource, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   }).outputText;
   const module = { exports: {} };
@@ -61,11 +63,79 @@ function medicationsRuntime(persist) {
   const runtime = hookRuntime([[medication], false, null]);
   const { useMedications } = load('hooks/use-medications.ts', {
     react: runtime.react,
-    '@/lib/medicationRepository': { fetchMedications: () => new Promise(() => {}), toggleMedicationLog: persist },
+    '@/lib/medicationDataSource': { fetchMedications: () => new Promise(() => {}), toggleMedicationLog: persist },
   });
   const hook = runtime.render(() => useMedications('user-1'));
   return { runtime, hook };
 }
+
+function loadApiClient(session = { access_token: 'token-1' }, fetchImpl = async () => ({ ok: true, status: 204 })) {
+  return load('lib/apiClient.ts', {
+    '@/lib/supabase': { supabase: { auth: { getSession: async () => ({ data: { session } }) } } },
+    globals: { fetch: fetchImpl },
+    sourceTransform: source => source.replace('import.meta.env.VITE_API_BASE_URL', JSON.stringify('https://api.test')),
+  });
+}
+
+test('API client builds JWT headers, omits credentials, and converts API errors to messages', async () => {
+  let request;
+  const client = loadApiClient({ access_token: 'jwt-token' }, async (url, init) => {
+    request = { url, init };
+    return { ok: false, status: 400, json: async () => ({ code: 'INVALID_REQUEST', message: '입력이 올바르지 않아요.' }) };
+  });
+  assert.deepEqual(client.buildRequestHeaders('jwt-token'), { Authorization: 'Bearer jwt-token' });
+  assert.deepEqual(client.buildRequestHeaders('jwt-token', true), { Authorization: 'Bearer jwt-token', 'Content-Type': 'application/json' });
+  await assert.rejects(
+    client.apiRequest('/api/v1/medications'),
+    error => error instanceof Error && error.message === '입력이 올바르지 않아요.',
+  );
+  assert.equal(request.url, 'https://api.test/api/v1/medications');
+  assert.equal(request.init.credentials, undefined);
+  assert.equal(request.init.headers['Content-Type'], undefined);
+  const fallback = await client.errorFromResponse({ json: async () => { throw new Error('not json'); } });
+  assert.equal(fallback.message, client.DEFAULT_API_ERROR_MESSAGE);
+});
+
+test('API client requires a session and adds JSON content type only for JSON bodies', async () => {
+  const noSession = loadApiClient(null);
+  await assert.rejects(noSession.apiRequest('/api/v1/me'), /로그인이 필요합니다/);
+
+  let request;
+  const client = loadApiClient({ access_token: 'jwt-token' }, async (url, init) => {
+    request = { url, init };
+    return { ok: true, status: 204 };
+  });
+  const result = await client.apiRequest('/api/v1/medications', { method: 'POST', body: JSON.stringify({ name: '약' }) });
+  assert.equal(result, undefined);
+  assert.equal(request.init.headers.Authorization, 'Bearer jwt-token');
+  assert.equal(request.init.headers['Content-Type'], 'application/json');
+});
+
+test('medication API repository uses local dates and intake HTTP methods', async () => {
+  const calls = [];
+  const repository = load('lib/medicationApiRepository.ts', {
+    '@/lib/apiClient': { apiRequest: async (...args) => { calls.push(args); return []; } },
+    '@/lib/medicationMapper': { getToday: () => '2026-09-27' },
+  });
+
+  await repository.fetchMedications('user-1');
+  await repository.toggleMedicationLog('med-1', 'user-1', true);
+  await repository.toggleMedicationLog('med-1', 'user-1', false);
+
+  assert.deepEqual(calls, [
+    ['/api/v1/medications?date=2026-09-27'],
+    ['/api/v1/medications/med-1/intakes/2026-09-27', { method: 'DELETE' }],
+    ['/api/v1/medications/med-1/intakes/2026-09-27', { method: 'PUT' }],
+  ]);
+});
+
+test('weekly stats exclude null rates from averages and parse API dates in local calendar time', () => {
+  const stats = load('lib/statsUtils.ts');
+  assert.equal(stats.averageRate([{ day: '일', rate: null }, { day: '월', rate: 100 }, { day: '화', rate: 50 }]), 75);
+  assert.equal(stats.averageRate([{ day: '일', rate: null }]), null);
+  assert.equal(stats.dateToDayLabel('2026-09-27'), '일');
+  assert.equal(stats.dateToDayLabel('2026-09-28'), '월');
+});
 
 test('completion persists even when React defers its state updater', async () => {
   const calls = [];

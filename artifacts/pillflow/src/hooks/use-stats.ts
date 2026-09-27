@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { toLocalDateStr } from "@/lib/medicationMapper";
+import { getToday, toLocalDateStr } from "@/lib/medicationMapper";
+import { apiRequest, isApiMode } from "@/lib/apiClient";
+import { dateToDayLabel, type WeeklyDataPoint } from "@/lib/statsUtils";
 
 /**
  * 주간 복약률과 연속 복용 일수(streak)를 계산하는 훅.
@@ -8,7 +10,7 @@ import { toLocalDateStr } from "@/lib/medicationMapper";
  * - streak: 최근 365일 복용 기록 조회 (7일만 조회하면 7일 초과 streak가 0이 되는 버그 방지)
  */
 export function useStats(totalMeds: number, userId?: string) {
-  const [weeklyData, setWeeklyData] = useState<{ day: string; rate: number }[]>([]);
+  const [weeklyData, setWeeklyData] = useState<WeeklyDataPoint[]>([]);
   const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -23,8 +25,18 @@ export function useStats(totalMeds: number, userId?: string) {
       }
 
       try {
+        if (isApiMode) {
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const response = await apiRequest<{ days: { date: string; rate: number | null }[] }>(
+            `/api/v1/stats/weekly?today=${encodeURIComponent(getToday())}&tz=${encodeURIComponent(timezone)}`,
+          );
+          setWeeklyData((response.days ?? []).map((day) => ({ day: dateToDayLabel(day.date), rate: day.rate })));
+          setStreak(0);
+          return;
+        }
+
         const days = ["일", "월", "화", "수", "목", "금", "토"];
-        const stats: { day: string; rate: number }[] = [];
+        const stats: WeeklyDataPoint[] = [];
         const total = totalMeds || 1;
 
         // 최근 7일 날짜 목록 생성 (로컬 시간 기준 — KST 자정 시간대 불일치 방지)
