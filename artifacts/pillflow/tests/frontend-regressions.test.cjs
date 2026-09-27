@@ -354,6 +354,225 @@ function medicationsRuntime(persist) {
   return { runtime, hook };
 }
 
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+function medicationIsolationRuntime() {
+  const runtime = hookRuntime();
+  const requests = { fetch: [], add: [], delete: [], toggle: [], reset: [] };
+  const notifications = [];
+  let userId;
+  const onConsentRequired = () => notifications.push(userId);
+  const enqueue = kind => (...args) => {
+    const request = { ...deferred(), args };
+    requests[kind].push(request);
+    return request.promise;
+  };
+  const { useMedications } = load('hooks/use-medications.ts', {
+    react: runtime.react,
+    '@/lib/medicationDataSource': {
+      fetchMedications: enqueue('fetch'), addMedication: enqueue('add'),
+      deleteMedication: enqueue('delete'), toggleMedicationLog: enqueue('toggle'),
+      resetAllMedications: enqueue('reset'),
+    },
+    '@/lib/consentUtils': load('lib/consentUtils.ts'),
+  });
+  const render = (nextUser = userId) => {
+    userId = nextUser;
+    return runtime.render(() => useMedications(userId, onConsentRequired));
+  };
+  return {
+    requests, notifications, render,
+    async settle() {
+      await new Promise(resolve => setImmediate(resolve));
+      runtime.flush();
+      return render();
+    },
+    dispose: runtime.dispose,
+  };
+}
+
+const userAMed = { id: 'shared-id', name: 'A medicine', completed: false };
+const userBMed = { id: 'shared-id', name: 'B medicine', completed: true };
+const staleConsentError = () => Object.assign(new Error('A consent expired'), { code: 'CONSENT_REQUIRED' });
+
+test('SEC-02 logout and B login discard a late A medication fetch', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.render(null);
+  testRuntime.render('B');
+  testRuntime.requests.fetch[1].resolve([userBMed]);
+  assert.deepEqual((await testRuntime.settle()).meds, [userBMed]);
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  const result = await testRuntime.settle();
+  assert.deepEqual(result.meds, [userBMed]);
+  assert.equal(result.loading, false);
+});
+
+test('SEC-02 late A fetch failure cannot overwrite B error or notify consent', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.render('B');
+  testRuntime.requests.fetch[1].reject(new Error('B fetch failed'));
+  assert.equal((await testRuntime.settle()).error, 'B fetch failed');
+  testRuntime.requests.fetch[0].reject(staleConsentError());
+  const result = await testRuntime.settle();
+  assert.equal(result.error, 'B fetch failed');
+  assert.deepEqual(testRuntime.notifications, []);
+});
+
+test('SEC-02 user changes immediately expose empty meds, reset errors, and correct loading', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  let hook = await testRuntime.settle();
+  const refetch = hook.refetch();
+  testRuntime.requests.fetch[1].reject(new Error('A fetch failed'));
+  await refetch;
+  hook = await testRuntime.settle();
+  assert.deepEqual(hook.meds, [userAMed]);
+  assert.equal(hook.error, 'A fetch failed');
+
+  const next = testRuntime.render('B');
+  assert.deepEqual(next.meds, []);
+  assert.equal(next.error, null);
+  assert.equal(next.loading, true);
+  const loggedOut = testRuntime.render(null);
+  assert.deepEqual(loggedOut.meds, []);
+  assert.equal(loggedOut.error, null);
+  assert.equal(loggedOut.loading, false);
+});
+
+test('SEC-02 returning to the same user still invalidates the earlier account generation', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.render(null);
+  testRuntime.render('A');
+  const freshMed = { ...userAMed, name: 'fresh A medicine' };
+  testRuntime.requests.fetch[1].resolve([freshMed]);
+  await testRuntime.settle();
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  assert.deepEqual((await testRuntime.settle()).meds, [freshMed]);
+});
+
+test('SEC-02 overlapping refetches keep only the newest success or failure', async () => {
+  for (const lateFailure of [false, true]) {
+    const testRuntime = medicationIsolationRuntime();
+    const hook = testRuntime.render('A');
+    const newest = hook.refetch();
+    const freshMed = { ...userAMed, name: 'newest result' };
+    testRuntime.requests.fetch[1].resolve([freshMed]);
+    await newest;
+    await testRuntime.settle();
+    if (lateFailure) testRuntime.requests.fetch[0].reject(staleConsentError());
+    else testRuntime.requests.fetch[0].resolve([userAMed]);
+    const result = await testRuntime.settle();
+    assert.deepEqual(result.meds, [freshMed]);
+    assert.equal(result.error, null);
+    assert.deepEqual(testRuntime.notifications, []);
+  }
+});
+
+test('SEC-02 stale fetch completion cannot stop a newer pending fetch loading state', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  const hook = testRuntime.render('A');
+  const newest = hook.refetch();
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  const pending = await testRuntime.settle();
+  assert.equal(pending.loading, true);
+  assert.deepEqual(pending.meds, []);
+  testRuntime.requests.fetch[1].resolve([userAMed]);
+  await newest;
+  assert.equal((await testRuntime.settle()).loading, false);
+});
+
+test('SEC-02 late A toggle failure does not roll back B or notify consent', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  const a = await testRuntime.settle();
+  const toggle = a.toggleMed('shared-id');
+  const expectedError = staleConsentError();
+  const failure = assert.rejects(toggle, error => error === expectedError);
+  await testRuntime.settle();
+  testRuntime.render('B');
+  testRuntime.requests.fetch[1].resolve([userBMed]);
+  await testRuntime.settle();
+  testRuntime.requests.toggle[0].reject(expectedError);
+  await failure;
+  assert.deepEqual((await testRuntime.settle()).meds, [userBMed]);
+  assert.deepEqual(testRuntime.notifications, []);
+});
+
+for (const [method, kind, args] of [
+  ['addMed', 'add', [{ name: 'added A medicine' }]],
+  ['deleteMed', 'delete', ['shared-id']],
+  ['resetAll', 'reset', []],
+]) {
+  test(`SEC-02 late A ${kind} success cannot modify B medicines`, async () => {
+    const testRuntime = medicationIsolationRuntime();
+    testRuntime.render('A');
+    testRuntime.requests.fetch[0].resolve([userAMed]);
+    const a = await testRuntime.settle();
+    const pending = a[method](...args);
+    testRuntime.render('B');
+    testRuntime.requests.fetch[1].resolve([userBMed]);
+    await testRuntime.settle();
+    testRuntime.requests[kind][0].resolve({ ...userAMed, id: 'added-med' });
+    await pending;
+    assert.deepEqual((await testRuntime.settle()).meds, [userBMed]);
+  });
+
+  test(`SEC-02 late A ${kind} failure propagates without notifying B consent`, async () => {
+    const testRuntime = medicationIsolationRuntime();
+    testRuntime.render('A');
+    testRuntime.requests.fetch[0].resolve([userAMed]);
+    const a = await testRuntime.settle();
+    const expectedError = staleConsentError();
+    const failure = assert.rejects(a[method](...args), error => error === expectedError);
+    testRuntime.render('B');
+    testRuntime.requests.fetch[1].resolve([userBMed]);
+    await testRuntime.settle();
+    testRuntime.requests[kind][0].reject(expectedError);
+    await failure;
+    const result = await testRuntime.settle();
+    assert.deepEqual(result.meds, [userBMed]);
+    assert.equal(result.error, null);
+    assert.deepEqual(testRuntime.notifications, []);
+  });
+}
+
+test('SEC-02 stale toggle cleanup cannot unlock the new user pending toggle', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  const a = await testRuntime.settle();
+  const oldToggle = a.toggleMed('shared-id');
+  testRuntime.render('B');
+  testRuntime.requests.fetch[1].resolve([userBMed]);
+  const b = await testRuntime.settle();
+  const newToggle = b.toggleMed('shared-id');
+  assert.equal(testRuntime.requests.toggle.length, 2);
+  testRuntime.requests.toggle[0].resolve();
+  await oldToggle;
+  await b.toggleMed('shared-id');
+  assert.equal(testRuntime.requests.toggle.length, 2);
+  testRuntime.requests.toggle[1].resolve();
+  await newToggle;
+});
+
+test('SEC-02 unmounted medication requests cannot notify consent', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.dispose();
+  testRuntime.requests.fetch[0].reject(staleConsentError());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(testRuntime.notifications, []);
+});
+
 function loadApiClient(session = { access_token: 'token-1' }, fetchImpl = async () => ({ ok: true, status: 204 })) {
   return load('lib/apiClient.ts', {
     '@/lib/supabase': { supabase: { auth: { getSession: async () => ({ data: { session } }) } } },
