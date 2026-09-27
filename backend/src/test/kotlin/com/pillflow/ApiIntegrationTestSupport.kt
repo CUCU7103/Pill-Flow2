@@ -63,6 +63,19 @@ abstract class ApiIntegrationTestSupport {
         jdbc.update("INSERT INTO auth.users(id) VALUES (?) ON CONFLICT (id) DO NOTHING", userId)
     }
 
+    protected fun grantConsent(userId: UUID) {
+        addUser(userId)
+        jdbc.update(
+            """
+            INSERT INTO public.user_consents(user_id, consent_type, policy_version)
+            VALUES (?, 'age_over_14', '2026-09-27'), (?, 'sensitive_health', '2026-09-27')
+            ON CONFLICT (user_id, consent_type, policy_version) DO NOTHING
+            """.trimIndent(),
+            userId,
+            userId,
+        )
+    }
+
 }
 
 @TestConfiguration

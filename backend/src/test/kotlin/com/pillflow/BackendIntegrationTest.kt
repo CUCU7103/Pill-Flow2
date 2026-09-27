@@ -145,6 +145,17 @@ class BackendIntegrationTest @Autowired constructor(
                 assertEquals(false, hasPrivilege("pillflow_api", table, privilege), "pillflow_api $privilege $table")
             }
         }
+        listOf("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER").forEach { privilege ->
+            assertEquals(false, hasPrivilege("anon", "user_consents", privilege), "anon $privilege user_consents")
+        }
+        listOf("SELECT", "INSERT").forEach { privilege ->
+            assertEquals(true, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
+            assertEquals(true, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
+        }
+        listOf("UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER").forEach { privilege ->
+            assertEquals(false, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
+            assertEquals(false, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
+        }
         listOf("anon", "authenticated", "service_role").forEach { role ->
             assertEquals(
                 false,
@@ -175,7 +186,7 @@ class BackendIntegrationTest @Autowired constructor(
     private fun hasPrivilege(role: String, table: String, privilege: String): Boolean =
         jdbc.queryForObject("SELECT has_table_privilege(?, ?, ?)", Boolean::class.java, role, "public.$table", privilege)!!
 
-    @Test fun `ALTER 적용 운영 스키마를 baseline하면 V2만 적용되고 JPA 검증이 통과한다`() {
+    @Test fun `ALTER 적용 운영 스키마를 baseline하면 V2와 V3가 적용되고 기존 행이 유지된다`() {
         val databaseName = "baseline_${UUID.randomUUID().toString().replace("-", "")}"
         DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
             connection.createStatement().use { it.execute("CREATE DATABASE $databaseName") }
@@ -206,15 +217,16 @@ class BackendIntegrationTest @Autowired constructor(
                 .load()
 
             flyway.baseline()
-            assertEquals(1, flyway.migrate().migrationsExecuted)
+            assertEquals(2, flyway.migrate().migrationsExecuted)
             assertEquals(
-                listOf("1", "2"),
+                listOf("1", "2", "3"),
                 baselineJdbc.queryForList(
                     "SELECT version FROM flyway.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank",
                     String::class.java,
                 ),
             )
             assertEquals(true, baselineJdbc.queryForObject("SELECT rolbypassrls FROM pg_roles WHERE rolname='pillflow_api'", Boolean::class.java))
+            assertEquals(0, baselineJdbc.queryForObject("SELECT count(*) FROM public.user_consents", Int::class.java))
             assertEquals(1, baselineJdbc.queryForObject("SELECT count(*) FROM public.medications", Int::class.java))
             assertEquals(1, baselineJdbc.queryForObject("SELECT count(*) FROM public.medication_logs", Int::class.java))
             // V1로 새로 만든 스키마와 운영(ALTER 적용 후 baseline) 스키마의 컬럼 정의(타입·NULL 허용·기본값)가 같아야 한다.
@@ -222,7 +234,7 @@ class BackendIntegrationTest @Autowired constructor(
             val columnDefinitionsSql = """
                 SELECT table_name, column_name, udt_name, is_nullable, column_default
                 FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name IN ('medications', 'medication_logs')
+                WHERE table_schema = 'public' AND table_name IN ('medications', 'medication_logs', 'user_consents')
                 ORDER BY table_name, column_name
             """.trimIndent()
             assertEquals(jdbc.queryForList(columnDefinitionsSql), baselineJdbc.queryForList(columnDefinitionsSql))
@@ -277,6 +289,40 @@ class BackendIntegrationTest @Autowired constructor(
                 ownerMedication,
                 other,
             )
+        }
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `동의 기록은 authenticated가 본인 행만 추가 조회하고 수정 삭제하지 못한다`() {
+        val owner = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?), (?)", owner, other)
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'age_over_14','2026-09-27'), (?,'age_over_14','2026-09-27')",
+            owner,
+            other,
+        )
+
+        jdbc.execute("SET LOCAL ROLE authenticated")
+        jdbc.queryForObject("SELECT set_config('request.jwt.claim.sub', ?, true)", String::class.java, owner.toString())
+
+        assertEquals(listOf(owner.toString()), jdbc.queryForList("SELECT user_id::text FROM public.user_consents", String::class.java))
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27')",
+            owner,
+        )
+        assertRlsViolation {
+            jdbc.update(
+                "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27')",
+                other,
+            )
+        }
+        assertRlsViolation {
+            jdbc.update("UPDATE public.user_consents SET policy_version='future' WHERE user_id=?", owner)
+        }
+        assertRlsViolation {
+            jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", owner)
         }
     }
 

@@ -23,6 +23,7 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
     fun `통계는 약의 요일에 맞는 예정과 복용만 센다`() {
         val user = UUID.randomUUID()
         addUser(user)
+        grantConsent(user)
         val medicationId = insertMedication(user, "월수금 약", arrayOf("mon", "wed", "fri"), Instant.parse("2026-09-01T00:00:00Z"))
         insertLog(user, medicationId, "2026-09-25")
         insertLog(user, medicationId, "2026-09-22")
@@ -56,6 +57,7 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
     fun `생성일 이전에는 예정으로 세지 않는다`() {
         val user = UUID.randomUUID()
         addUser(user)
+        grantConsent(user)
         insertMedication(user, "중간 생성 약", arrayOf("mon", "tue", "wed", "thu", "fri", "sat", "sun"), Instant.parse("2026-09-23T00:00:00Z"))
 
         mockMvc.perform(
@@ -75,6 +77,7 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
     fun `통계는 오늘 포함 7일을 날짜 오름차순으로 반환하고 빈 날 rate는 null이다`() {
         val user = UUID.randomUUID()
         addUser(user)
+        grantConsent(user)
 
         mockMvc.perform(
             get("/api/v1/stats/weekly")
@@ -98,6 +101,7 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
         val other = UUID.randomUUID()
         addUser(user)
         addUser(other)
+        grantConsent(user)
         repeat(3) { index ->
             val medicationId = insertMedication(user, "내 약 $index", arrayOf("fri"), Instant.parse("2026-09-01T00:00:00Z"))
             if (index < 2) insertLog(user, medicationId, "2026-09-25")
@@ -121,6 +125,7 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
     fun `생성 시각을 클라이언트 시간대로 변환해 경계 날짜를 판정한다`() {
         val user = UUID.randomUUID()
         addUser(user)
+        grantConsent(user)
         insertMedication(user, "서울 경계 약", arrayOf("fri", "sat"), Instant.parse("2026-09-25T16:00:00Z"))
 
         mockMvc.perform(
@@ -138,6 +143,7 @@ class StatsApiIntegrationTest : ApiIntegrationTestSupport() {
 
     @Test
     fun `잘못된 통계 날짜와 시간대는 400이다`() {
+        grantConsent(UUID.fromString(ApiTestJwt.defaultUserId))
         val authorization = authorization()
         mockMvc.perform(
             get("/api/v1/stats/weekly")
