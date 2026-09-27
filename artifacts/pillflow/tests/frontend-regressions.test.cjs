@@ -137,6 +137,13 @@ test('weekly stats exclude null rates from averages and parse API dates in local
   assert.equal(stats.dateToDayLabel('2026-09-28'), '월');
 });
 
+test('about modal platform label follows the running platform instead of a fixed Android label', () => {
+  const { platformLabel } = load('lib/platform.ts');
+  assert.equal(platformLabel('web'), '웹');
+  assert.equal(platformLabel('android'), 'Android');
+  assert.equal(platformLabel('ios'), 'iOS');
+});
+
 test('completion persists even when React defers its state updater', async () => {
   const calls = [];
   const { runtime, hook } = medicationsRuntime(async (...args) => calls.push(args));

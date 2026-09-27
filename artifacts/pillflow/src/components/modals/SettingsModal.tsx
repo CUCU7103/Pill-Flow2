@@ -70,6 +70,7 @@ export function SettingsModal({
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const isSubModalOpen = privacyOpen || aboutOpen || accountOpen;
 
   // Google 계정에서 표시 이름 추출 (없으면 이메일 앞부분 사용)
   const displayName =
@@ -99,6 +100,19 @@ export function SettingsModal({
           <Drawer.Content
             className="fixed inset-x-0 bottom-0 z-50 flex h-auto max-h-[90dvh] flex-col overflow-hidden rounded-t-[24px] outline-none"
             style={{ backgroundColor: t.card }}
+            // 서브 모달은 Drawer.Content 바깥에 렌더링되므로, 서브 모달 안의 클릭이 Drawer에는 "바깥 클릭"으로 잡혀
+            // 설정까지 함께 닫힌다. 서브 모달이 열려 있는 동안은 Drawer의 바깥 클릭 닫기를 막는다.
+            onPointerDownOutside={(event) => {
+              if (isSubModalOpen) event.preventDefault();
+            }}
+            // Esc도 같은 이유로 설정 전체를 닫으므로, 서브 모달이 열려 있으면 서브 모달만 닫는다.
+            onEscapeKeyDown={(event) => {
+              if (!isSubModalOpen) return;
+              event.preventDefault();
+              setPrivacyOpen(false);
+              setAboutOpen(false);
+              setAccountOpen(false);
+            }}
           >
             <Drawer.Handle
               className="mx-auto mt-3 h-1 w-10 rounded-full"

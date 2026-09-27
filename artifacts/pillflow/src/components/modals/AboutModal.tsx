@@ -1,6 +1,8 @@
 import { motion } from "framer-motion";
 import { useTheme } from "@/hooks/use-theme";
+import { Capacitor } from "@capacitor/core";
 import { APP_VERSION } from "@/constants";
+import { platformLabel } from "@/lib/platform";
 
 /** 앱 정보 모달 (버전 정보 버튼 클릭 시 표시) */
 export function AboutModal({
@@ -61,7 +63,7 @@ export function AboutModal({
           </div>
           <div className="flex justify-between items-center px-4 py-3">
             <span className="text-sm font-semibold" style={{ color: t.subtext }}>플랫폼</span>
-            <span className="text-sm font-bold" style={{ color: t.text }}>Android</span>
+            <span className="text-sm font-bold" style={{ color: t.text }}>{platformLabel(Capacitor.getPlatform())}</span>
           </div>
           <div className="flex justify-between items-center px-4 py-3">
             <span className="text-sm font-semibold" style={{ color: t.subtext }}>문의</span>
