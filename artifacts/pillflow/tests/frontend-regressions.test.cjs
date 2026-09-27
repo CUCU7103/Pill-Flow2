@@ -223,6 +223,7 @@ test('initial consent load failures stop loading and expose an error', async () 
     const consent = runtime.render(() => useConsent('user-1'));
 
     assert.equal(consent.loading, false, scenario.name);
+    assert.equal(consent.status, null, scenario.name);
     assert.ok(consent.error, scenario.name);
   }
 });
@@ -261,6 +262,68 @@ test('background consent revalidation keeps the existing status until the fresh 
   consent = runtime.render(() => useConsent('user-1'));
   assert.deepEqual(consent.status, incompleteStatus);
   assert.equal(consent.revalidating, false);
+});
+
+test('background consent revalidation failure preserves status and exposes an error', async () => {
+  const runtime = hookRuntime();
+  let calls = 0;
+  const completeStatus = { policyVersion: '2026-09-27', ageOver14: true, sensitiveHealth: true, photoAnalysis: true };
+  const { useConsent } = load('hooks/use-consent.ts', {
+    react: runtime.react,
+    '@/lib/consentDataSource': {
+      fetchConsentStatus: async () => {
+        if (++calls === 1) return completeStatus;
+        throw new Error('refresh failed');
+      },
+      recordConsents: async () => completeStatus,
+    },
+  });
+
+  runtime.render(() => useConsent('user-1'));
+  await new Promise(resolve => setImmediate(resolve));
+  runtime.flush();
+  let consent = runtime.render(() => useConsent('user-1'));
+  const revalidation = consent.reload();
+  runtime.flush();
+  await revalidation;
+  runtime.flush();
+  consent = runtime.render(() => useConsent('user-1'));
+
+  assert.deepEqual(consent.status, completeStatus);
+  assert.equal(consent.loading, false);
+  assert.equal(consent.revalidating, false);
+  assert.equal(consent.error, 'refresh failed');
+});
+
+test('withdrawal invalidates sensitive and photo consent even when revalidation fails', async () => {
+  const runtime = hookRuntime();
+  let fetchCalls = 0;
+  const completeStatus = { policyVersion: '2026-09-27', ageOver14: true, sensitiveHealth: true, photoAnalysis: true };
+  const { useConsent } = load('hooks/use-consent.ts', {
+    react: runtime.react,
+    '@/lib/consentDataSource': {
+      fetchConsentStatus: async () => {
+        if (++fetchCalls === 1) return completeStatus;
+        throw new Error('withdrawn status unavailable');
+      },
+      recordConsents: async () => completeStatus,
+    },
+  });
+
+  runtime.render(() => useConsent('user-1'));
+  await new Promise(resolve => setImmediate(resolve));
+  runtime.flush();
+  let consent = runtime.render(() => useConsent('user-1'));
+  consent.markWithdrawn();
+  const failedRevalidation = consent.reload();
+  runtime.flush();
+  await failedRevalidation;
+  runtime.flush();
+  consent = runtime.render(() => useConsent('user-1'));
+
+  assert.equal(consent.status.ageOver14, true);
+  assert.equal(consent.status.sensitiveHealth, false);
+  assert.equal(consent.status.photoAnalysis, false);
 });
 
 test('consent save applies for the current user even when a later reload is pending', async () => {
@@ -413,8 +476,49 @@ test('Supabase reset removes only the current user sensitive and photo consent r
 
   await repository.resetAllMedications('user-7');
 
+  const firstConsentDelete = calls.findIndex(([table, action]) => table === 'user_consents' && action === 'delete');
+  const firstMedicationRead = calls.findIndex(([table, action]) => table === 'medications' && action === 'select');
+  const firstLogDelete = calls.findIndex(([table, action]) => table === 'medication_logs' && action === 'delete');
+  const firstMedicationDelete = calls.findIndex(([table, action]) => table === 'medications' && action === 'delete');
+  assert.ok(firstConsentDelete >= 0 && firstConsentDelete < firstMedicationRead);
+  assert.ok(firstLogDelete > firstConsentDelete);
+  assert.ok(firstMedicationDelete > firstLogDelete);
   assert.ok(calls.some(([table, action, column, userId]) => table === 'user_consents' && action === 'eq' && column === 'user_id' && userId === 'user-7'));
   assert.ok(calls.some(([table, action, column, types]) => table === 'user_consents' && action === 'in' && column === 'consent_type' && types.join(',') === 'sensitive_health,photo_analysis'));
+});
+
+test('Supabase reset stops before medication deletion when consent withdrawal fails', async () => {
+  const calls = [];
+  const repository = load('lib/medicationRepository.ts', {
+    '@/lib/supabase': {
+      supabase: {
+        from(table) {
+          let selection;
+          const query = {
+            select(columns) { selection = columns; calls.push([table, 'select', columns]); return this; },
+            delete() { calls.push([table, 'delete']); return this; },
+            eq(column, value) { calls.push([table, 'eq', column, value]); return this; },
+            in(column, values) {
+              calls.push([table, 'in', column, values]);
+              return Promise.resolve({ error: table === 'user_consents' ? new Error('consent delete failed') : null });
+            },
+            then(resolve, reject) {
+              return Promise.resolve({ data: selection === 'id' ? [{ id: 'med-1' }] : [], error: null }).then(resolve, reject);
+            },
+          };
+          return query;
+        },
+      },
+    },
+    '@/lib/medicationMapper': { getToday: () => '2026-09-27', toMedication: row => row },
+  });
+
+  await assert.rejects(repository.resetAllMedications('user-7'), /consent delete failed/);
+  assert.deepEqual(calls.map(([table, action]) => [table, action]), [
+    ['user_consents', 'delete'],
+    ['user_consents', 'eq'],
+    ['user_consents', 'in'],
+  ]);
 });
 
 test('medication API repository uses local dates and intake HTTP methods', async () => {
@@ -582,6 +686,63 @@ test('native notification hook cancels pending notifications on unmount', async 
   await new Promise(resolve => setImmediate(resolve));
 
   assert.deepEqual(cancelled, [pending]);
+});
+
+test('App cancels notifications for confirmed incomplete consent and before consent sign-out', async () => {
+  const runtime = hookRuntime();
+  let cancelCalls = 0;
+  let signOutCalls = 0;
+  const jsx = (type, props) => ({ type, props });
+  const { default: App } = load('App.tsx', {
+    react: runtime.react,
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    'framer-motion': { motion: {}, AnimatePresence: 'AnimatePresence', useReducedMotion: () => false },
+    sonner: { toast: {} },
+    '@/hooks/use-persisted': { usePersisted: (_key, initial) => [initial, () => {}] },
+    '@/hooks/use-theme': { useDarkMode() {} },
+    '@/hooks/use-android-back-button': { useAndroidBackButton() {} },
+    '@/hooks/use-medications': { useMedications() {} },
+    '@/hooks/use-auth': { useAuth: () => ({ user: { id: 'user-1' }, loading: false, signInWithGoogle() {}, signOut: async () => { signOutCalls++; } }) },
+    '@/hooks/use-notifications': { useNotifications() {}, cancelAllNotifications: async () => { cancelCalls++; } },
+    '@/hooks/use-day-change': { useDayChange() {} },
+    '@/hooks/use-consent': { useConsent: () => ({
+      status: { policyVersion: '2026-09-27', ageOver14: false, sensitiveHealth: false, photoAnalysis: false },
+      loading: false,
+      error: null,
+      reload: async () => {},
+      save: async () => ({}),
+    }) },
+    '@/lib/consentUtils': load('lib/consentUtils.ts'),
+    '@/components/common/BottomNav': { BottomNav: 'BottomNav' },
+    '@/components/views/TodayView': { TodayView: 'TodayView' },
+    '@/components/views/AddView': { AddView: 'AddView' },
+    '@/components/views/StatsView': { StatsView: 'StatsView' },
+    '@/components/views/ConsentView': { ConsentView: 'ConsentView' },
+    '@/components/views/LoginView': { LoginView: 'LoginView' },
+    '@/components/modals/SettingsModal': { SettingsModal: 'SettingsModal' },
+    '@/constants': { DAY_KEYS_SUN_FIRST: [] },
+  });
+
+  const tree = runtime.render(() => App());
+  assert.equal(tree.type, 'ConsentView');
+  assert.equal(cancelCalls, 1);
+  await tree.props.onSignOut();
+  assert.equal(cancelCalls, 2);
+  assert.equal(signOutCalls, 1);
+});
+
+test('cancelAllNotifications does nothing on web', async () => {
+  let calls = 0;
+  const notifications = load('hooks/use-notifications.ts', {
+    react: hookRuntime().react,
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => false } },
+    '@capacitor/app': { App: { addListener: async () => ({ remove() {} }) } },
+    '@capacitor/local-notifications': { LocalNotifications: { getPending: async () => { calls++; return { notifications: [] }; } } },
+    '@/lib/notificationSchedule': { buildMedicationNotifications: () => [] },
+  });
+
+  await notifications.cancelAllNotifications();
+  assert.equal(calls, 0);
 });
 
 test('native notifications do not schedule after an in-flight permission request is unmounted', async () => {

@@ -7,7 +7,7 @@ import { useDarkMode } from "@/hooks/use-theme";
 import { useAndroidBackButton } from "@/hooks/use-android-back-button";
 import { useMedications } from "@/hooks/use-medications";
 import { useAuth } from "@/hooks/use-auth";
-import { useNotifications } from "@/hooks/use-notifications";
+import { cancelAllNotifications, useNotifications } from "@/hooks/use-notifications";
 import { useDayChange } from "@/hooks/use-day-change";
 import { useConsent } from "@/hooks/use-consent";
 import { isConsentComplete, transitionConsentGuard, type ConsentType } from "@/lib/consentUtils";
@@ -46,6 +46,17 @@ export default function App() {
   const reloadingConsentRef = useRef(false);
   const activeUserId = useRef<string | null>(null);
   const [consentGuardError, setConsentGuardError] = useState(false);
+
+  useEffect(() => {
+    if (user && consent.status && !isConsentComplete(consent.status)) {
+      void cancelAllNotifications();
+    }
+  }, [user?.id, consent.status]);
+
+  const handleConsentSignOut = useCallback(async () => {
+    await cancelAllNotifications();
+    await signOut();
+  }, [signOut]);
 
   useEffect(() => {
     if (activeUserId.current === (user?.id ?? null)) return;
@@ -95,13 +106,14 @@ export default function App() {
   }, [consent.reload]);
 
   const handleMedicationReset = useCallback(() => {
+    consent.markWithdrawn();
     consentRequiredCount.current = 0;
     setConsentGuardError(false);
     reloadingConsentRef.current = true;
     void consent.reload().finally(() => {
       reloadingConsentRef.current = false;
     });
-  }, [consent.reload]);
+  }, [consent.markWithdrawn, consent.reload]);
 
   const recordPhotoConsent = useCallback(() => consent.save(["photo_analysis"]), [consent.save]);
 
@@ -118,7 +130,7 @@ export default function App() {
         status={consent.status}
         dark={dark}
         onAgree={handleConsentAgree}
-        onSignOut={signOut}
+        onSignOut={handleConsentSignOut}
       />
     );
   }
@@ -147,7 +159,7 @@ export default function App() {
         status={consent.status}
         dark={dark}
         onAgree={handleConsentAgree}
-        onSignOut={signOut}
+        onSignOut={handleConsentSignOut}
       />
     );
   }

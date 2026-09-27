@@ -45,6 +45,21 @@ export function useConsent(userId?: string | null) {
 
   const reloadCurrentUser = useCallback(() => reload(userId), [reload, userId]);
 
+  const markWithdrawn = useCallback(() => {
+    if (!userId) return;
+    requestVersion.current++;
+    setState((current) => {
+      if (current.userId !== userId || !current.status) return current;
+      return {
+        ...current,
+        status: { ...current.status, sensitiveHealth: false, photoAnalysis: false },
+        loading: false,
+        revalidating: false,
+        error: null,
+      };
+    });
+  }, [userId]);
+
   useEffect(() => {
     if (!userId) {
       requestVersion.current++;
@@ -77,5 +92,6 @@ export function useConsent(userId?: string | null) {
     error: stateMatchesUser ? state.error : null,
     reload: reloadCurrentUser,
     save,
+    markWithdrawn,
   };
 }

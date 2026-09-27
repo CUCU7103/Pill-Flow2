@@ -138,7 +138,8 @@ async function logExactAlarmSetting() {
 }
 
 /** 모든 예약된 로컬 알림 취소 */
-function cancelAllNotifications() {
+export function cancelAllNotifications() {
+  if (!Capacitor.isNativePlatform()) return Promise.resolve();
   const generation = ++scheduleGeneration;
   return cancelPendingNotifications(generation);
 }
