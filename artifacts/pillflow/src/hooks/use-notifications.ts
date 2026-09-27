@@ -8,6 +8,7 @@ import type { Medication, NotifCategories } from "@/types";
 // 채널 정책(사운드/중요도 등)이 바뀔 때마다 버전을 올려야 한다.
 // Android NotificationChannel은 한 번 생성되면 불변이므로, ID를 바꿔야 새 설정이 기존 사용자에게 적용된다.
 const CHANNEL_ID = "pillflow-reminders-v2";
+let scheduleGeneration = 0;
 
 /**
  * 복약 알림을 스케줄링하는 훅
@@ -58,6 +59,7 @@ export function useNotifications(
 
     // 로그아웃·계정 전환·필수 동의 해제로 앱 본체가 내려가면 이전 사용자의 예약 알림을 취소한다.
     return () => {
+      scheduleGeneration++;
       void cancelAllNotifications();
     };
   }, []);
@@ -90,18 +92,24 @@ async function ensureNotificationChannel() {
 
 /** 모든 기존 알림을 취소하고 현재 약 목록으로 재스케줄링 */
 async function scheduleNotifications(meds: Medication[], categories: NotifCategories) {
+  const generation = scheduleGeneration;
+  const isCurrentGeneration = () => generation === scheduleGeneration;
+
   try {
     // 알림 권한 요청 (Android 13+ / iOS는 반드시 필요)
     const { display } = await LocalNotifications.requestPermissions();
-    if (display !== "granted") return;
+    if (!isCurrentGeneration() || display !== "granted") return;
 
     // Android 채널 생성 (소리/진동 포함)
     await ensureNotificationChannel();
+    if (!isCurrentGeneration()) return;
 
     await logExactAlarmSetting();
+    if (!isCurrentGeneration()) return;
 
     // 기존 알림을 모두 취소하고 새로 스케줄링 (중복 방지)
     await cancelAllNotifications();
+    if (!isCurrentGeneration()) return;
 
     // 요일이 있는 약만 스케줄링 (완료 여부는 무시 — 내일도 다시 울려야 함)
     // 카테고리 필터링은 buildMedicationNotifications 내부에서 times별로 처리
@@ -111,8 +119,12 @@ async function scheduleNotifications(meds: Medication[], categories: NotifCatego
     const notifications = buildMedicationNotifications(activeMeds, categories, CHANNEL_ID);
 
     if (notifications.length === 0) return;
+    if (!isCurrentGeneration()) return;
 
     await LocalNotifications.schedule({ notifications });
+    if (!isCurrentGeneration()) {
+      await LocalNotifications.cancel({ notifications: notifications.map(({ id }) => ({ id })) });
+    }
   } catch (error) {
     // 알림 권한 거부나 API 오류는 앱 동작에 영향 없이 무시
     console.warn("[PillFlow] 알림 스케줄링 실패:", error);

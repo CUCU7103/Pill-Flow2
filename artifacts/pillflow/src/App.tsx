@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useDayChange } from "@/hooks/use-day-change";
 import { useConsent } from "@/hooks/use-consent";
-import { isConsentComplete, type ConsentType } from "@/lib/consentUtils";
+import { isConsentComplete, transitionConsentGuard, type ConsentType } from "@/lib/consentUtils";
 import { BottomNav } from "@/components/common/BottomNav";
 import { TodayView } from "@/components/views/TodayView";
 import { AddView } from "@/components/views/AddView";
@@ -43,6 +43,7 @@ export default function App() {
   const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
   const consent = useConsent(user?.id);
   const consentRequiredCount = useRef(0);
+  const reloadingConsentRef = useRef(false);
   const activeUserId = useRef<string | null>(null);
   const [consentGuardError, setConsentGuardError] = useState(false);
 
@@ -50,17 +51,32 @@ export default function App() {
     if (activeUserId.current === (user?.id ?? null)) return;
     activeUserId.current = user?.id ?? null;
     consentRequiredCount.current = 0;
+    reloadingConsentRef.current = false;
     setConsentGuardError(false);
   }, [user?.id]);
 
   const handleConsentRequired = useCallback(() => {
-    consentRequiredCount.current++;
-    if (consentRequiredCount.current >= 2) {
+    const decision = transitionConsentGuard(
+      "consent_required",
+      consent.loading || reloadingConsentRef.current,
+      consentRequiredCount.current,
+    );
+    consentRequiredCount.current = decision.consecutiveFailures;
+    if (decision.action === "ignore") return;
+    if (decision.action === "show_error") {
       setConsentGuardError(true);
       return;
     }
-    void consent.reload();
-  }, [consent.reload]);
+    reloadingConsentRef.current = true;
+    void consent.reload().finally(() => {
+      reloadingConsentRef.current = false;
+    });
+  }, [consent.loading, consent.reload]);
+
+  const handleMedicationQuerySucceeded = useCallback(() => {
+    const decision = transitionConsentGuard("medications_loaded", false, consentRequiredCount.current);
+    consentRequiredCount.current = decision.consecutiveFailures;
+  }, []);
 
   const handleConsentAgree = useCallback(async (types: ConsentType[]) => {
     const status = await consent.save(types);
@@ -72,7 +88,10 @@ export default function App() {
   const retryConsent = useCallback(() => {
     consentRequiredCount.current = 0;
     setConsentGuardError(false);
-    void consent.reload();
+    reloadingConsentRef.current = true;
+    void consent.reload().finally(() => {
+      reloadingConsentRef.current = false;
+    });
   }, [consent.reload]);
 
   const recordPhotoConsent = useCallback(() => consent.save(["photo_analysis"]), [consent.save]);
@@ -122,6 +141,7 @@ export default function App() {
       photoAnalysis={Boolean(consent.status?.photoAnalysis)}
       onPhotoConsent={recordPhotoConsent}
       onConsentRequired={handleConsentRequired}
+      onMedicationQuerySucceeded={handleMedicationQuerySucceeded}
     />
   );
 }
@@ -135,6 +155,7 @@ function AuthenticatedApp({
   photoAnalysis,
   onPhotoConsent,
   onConsentRequired,
+  onMedicationQuerySucceeded,
 }: {
   user: User;
   dark: boolean;
@@ -143,6 +164,7 @@ function AuthenticatedApp({
   photoAnalysis: boolean;
   onPhotoConsent: () => Promise<unknown>;
   onConsentRequired: () => void;
+  onMedicationQuerySucceeded: () => void;
 }) {
   const reduceMotion = useReducedMotion();
   const [view, setView] = useState<View>("today");
@@ -156,6 +178,10 @@ function AuthenticatedApp({
   // Supabase 기반 약 데이터 (로그인 후에만 사용)
   // user.id를 전달해 RLS insert 시 user_id가 포함되도록 함
   const { meds, loading: medsLoading, error: medsError, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user.id, onConsentRequired);
+
+  useEffect(() => {
+    if (!medsLoading && !medsError) onMedicationQuerySucceeded();
+  }, [medsLoading, medsError, onMedicationQuerySucceeded]);
 
   // 복약 알림 스케줄링 (네이티브 앱에서만 동작)
   useNotifications(meds, notif, notifCategories);

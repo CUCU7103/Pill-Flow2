@@ -167,6 +167,26 @@ test('consent error utility recognizes current consent API errors only', () => {
   assert.equal(consent.isConsentRequiredError(null), false);
 });
 
+test('consent guard ignores in-flight reloads, resets after a successful query, and errors on repeated 403s', () => {
+  const { transitionConsentGuard } = load('lib/consentUtils.ts');
+
+  assert.deepEqual(transitionConsentGuard('consent_required', true, 1), {
+    action: 'ignore',
+    consecutiveFailures: 1,
+  });
+
+  const afterSuccess = transitionConsentGuard('medications_loaded', false, 1);
+  assert.deepEqual(afterSuccess, { action: 'reset', consecutiveFailures: 0 });
+  assert.deepEqual(transitionConsentGuard('consent_required', false, afterSuccess.consecutiveFailures), {
+    action: 'reload',
+    consecutiveFailures: 1,
+  });
+  assert.deepEqual(transitionConsentGuard('consent_required', false, 1), {
+    action: 'show_error',
+    consecutiveFailures: 2,
+  });
+});
+
 test('medication fetch notifies once when current consent is required', async () => {
   const runtime = hookRuntime();
   const { ApiError } = loadApiClient();
@@ -400,6 +420,38 @@ test('native notification hook cancels pending notifications on unmount', async 
   await new Promise(resolve => setImmediate(resolve));
 
   assert.deepEqual(cancelled, [pending]);
+});
+
+test('native notifications do not schedule after an in-flight permission request is unmounted', async () => {
+  const runtime = hookRuntime();
+  let resolvePermissions;
+  const permissionRequest = new Promise(resolve => { resolvePermissions = resolve; });
+  const scheduled = [];
+  const { useNotifications } = load('hooks/use-notifications.ts', {
+    react: runtime.react,
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => true } },
+    '@capacitor/app': { App: { addListener: async () => ({ remove() {} }) } },
+    '@capacitor/local-notifications': {
+      LocalNotifications: {
+        requestPermissions: () => permissionRequest,
+        createChannel: async () => {},
+        deleteChannel: async () => {},
+        checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }),
+        getPending: async () => ({ notifications: [] }),
+        cancel: async () => {},
+        schedule: async request => scheduled.push(request),
+      },
+    },
+    '@/lib/notificationSchedule': { buildMedicationNotifications: () => [{ id: 456, title: '이전 사용자 알림' }] },
+  });
+
+  const scheduledMedication = { ...medication, name: '이전 약', times: ['08:00'], days: ['mon'] };
+  runtime.render(() => useNotifications([scheduledMedication], true, { morning: true, lunch: true, evening: true }));
+  runtime.dispose();
+  resolvePermissions({ display: 'granted' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(scheduled, []);
 });
 
 test('off-day medicines can be inspected and deleted without changing today progress', () => {

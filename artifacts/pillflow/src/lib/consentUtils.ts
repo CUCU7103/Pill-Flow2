@@ -50,3 +50,25 @@ export async function savePhotoConsentThenStart(
 export function isConsentRequiredError(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "CONSENT_REQUIRED");
 }
+
+export type ConsentGuardAction = "ignore" | "reload" | "show_error" | "reset";
+
+/** 동의 재조회 중인 403은 무시하고, 약 목록 조회가 성공하면 연속 횟수를 초기화한다. */
+export function transitionConsentGuard(
+  event: "consent_required" | "medications_loaded",
+  isReloading: boolean,
+  consecutiveFailures: number,
+): { action: ConsentGuardAction; consecutiveFailures: number } {
+  if (event === "medications_loaded") {
+    return { action: "reset", consecutiveFailures: 0 };
+  }
+  if (isReloading) {
+    return { action: "ignore", consecutiveFailures };
+  }
+
+  const nextFailures = consecutiveFailures + 1;
+  return {
+    action: nextFailures >= 2 ? "show_error" : "reload",
+    consecutiveFailures: nextFailures,
+  };
+}
