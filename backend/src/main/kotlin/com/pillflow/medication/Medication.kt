@@ -28,6 +28,8 @@ class Medication(
 interface MedicationRepository : org.springframework.data.jpa.repository.JpaRepository<Medication, UUID> {
     fun findAllByUserIdOrderByCreatedAtAsc(userId: UUID): List<Medication>
 
+    fun countByUserId(userId: UUID): Long
+
     fun findByIdAndUserId(id: UUID, userId: UUID): java.util.Optional<Medication>
 
     @Modifying

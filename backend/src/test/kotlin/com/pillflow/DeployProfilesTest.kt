@@ -85,7 +85,7 @@ class DeployProfilesTest {
         // MigrateExitRunner가 이미 SpringApplication.exit(context)를 호출해 컨텍스트를 닫았으므로,
         // 여기서는 러너가 기록한 종료 코드만 확인한다(컨텍스트를 다시 닫으려 하면 안 된다).
         assertEquals(0, TestProcessExiterConfig.lastExitCode.get())
-        assertEquals(listOf("0", "1", "2", "3"), appliedVersions())
+        assertEquals(listOf("0", "1", "2", "3", "4", "5"), appliedVersions())
     }
 
     @Test

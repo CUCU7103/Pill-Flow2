@@ -1,5 +1,9 @@
 # api.pillflow.app — Let's Encrypt 인증서 자동 발급·갱신, HTTP는 HTTPS로 자동 리다이렉트
 api.pillflow.app {
 	encode gzip
+	# 약 정보 API 요청은 수 KB 수준이므로 과도한 본문은 앱에 닿기 전에 거부한다(SEC-04)
+	request_body {
+		max_size 64KB
+	}
 	reverse_proxy app:8080
 }

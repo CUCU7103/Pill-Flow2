@@ -72,6 +72,276 @@ function load(relativePath, overrides = {}) {
   return module.exports;
 }
 
+const nativeCallback = 'com.pillflow.app://callback';
+
+test('Supabase uses PKCE without disabling automatic web callback detection', () => {
+  let options;
+  load('lib/supabase.ts', {
+    '@supabase/supabase-js': { createClient: (_url, _key, config) => { options = config; return {}; } },
+    sourceTransform: source => source.replaceAll('import.meta.env', JSON.stringify({ VITE_SUPABASE_URL: 'https://auth.test', VITE_SUPABASE_ANON_KEY: 'public-key' })),
+  });
+  assert.equal(options?.auth?.flowType, 'pkce');
+  assert.notEqual(options.auth.detectSessionInUrl, false);
+});
+
+test('OAuth callback accepts a single authorization code in query or fragment', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const suffix of ['?code=auth-code', '#code=auth-code', '?other=value#code=auth-code', '?code=auth-code#other=value']) {
+    assert.deepEqual(parseOAuthCallback(nativeCallback + suffix), { code: 'auth-code' });
+  }
+  assert.deepEqual(parseOAuthCallback(nativeCallback + '?code=A0%2E_%7E-'), { code: 'A0._~-' });
+  assert.deepEqual(parseOAuthCallback(nativeCallback + '?code=' + 'a'.repeat(512)), { code: 'a'.repeat(512) });
+});
+
+test('OAuth callback rejects codes outside the bounded URL-safe allowlist', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const code of ['a'.repeat(513), 'a+b/c', 'a b', '\na', 'a\n', 'a\r', 'a\t', 'a\0', '한글', 'a?b', 'a#b', 'a&b', 'a=b', '%']) {
+    for (const separator of ['?', '#']) {
+      assert.equal(parseOAuthCallback(nativeCallback + separator + 'code=' + encodeURIComponent(code)), null, JSON.stringify(code));
+    }
+  }
+});
+
+test('OAuth callback rejects lookalike schemes, authorities, and paths', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const url of [
+    'com.pillflow.app://callback.evil?code=x',
+    'com.pillflow.app://callbackx?code=x',
+    'com.pillflow.app://evil/callback?code=x',
+    'https://callback?code=x',
+    'evil://callback?code=x',
+    'com.pillflow.app://callback/extra?code=x',
+    'com.pillflow.app://callback/?code=x',
+    'com.pillflow.app://callback@evil?code=x',
+    'com.pillflow.app://callback:123?code=x',
+    'com.pillflow.app://callback%3Fcode=x',
+    ' com.pillflow.app://callback?code=x',
+    'COM.PILLFLOW.APP://callback?code=x',
+  ]) assert.equal(parseOAuthCallback(url), null, url);
+});
+
+test('OAuth callback rejects tokens in either parameter section even alongside a code', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const token of ['access_token', 'refresh_token', 'access%5Ftoken', 'refresh%5Ftoken', 'ACCESS_TOKEN', 'ReFrEsH_ToKeN', 'access_token_extra', 'refresh_token[]', 'Access%5FTokenHint', 'refresh_tokenization']) {
+    for (const suffix of [
+      `?${token}=secret`, `#${token}=secret`,
+      `?code=x&${token}=secret`, `#code=x&${token}=secret`,
+      `?code=x#${token}=secret`, `?${token}=secret#code=x`,
+      `?code=x&${token}=`, `?code=x#${token}`,
+    ]) assert.equal(parseOAuthCallback(nativeCallback + suffix), null, suffix);
+  }
+});
+
+test('OAuth callback classifies provider errors without exposing their contents', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const suffix of [
+    '?error=access_denied', '#error=access_denied',
+    '?error_description=sensitive-detail', '#error_description=sensitive-detail',
+    '?error_code=provider-code', '#error_code=provider-code', '?code=x#error_code=',
+    '?code=x#error=access_denied', '?error=access_denied#code=x',
+    '?error=', '#error_description=',
+  ]) assert.deepEqual(parseOAuthCallback(nativeCallback + suffix), { error: true });
+  assert.equal(parseOAuthCallback(nativeCallback + '?error=denied#access_token=secret'), null);
+});
+
+test('OAuth callback rejects missing, blank, and ambiguous authorization codes', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const suffix of ['', '?', '#', '?state=x', '?code=', '#code=', '?code=%20', '?code=x&code=y', '?code=x#code=y']) {
+    assert.equal(parseOAuthCallback(nativeCallback + suffix), null, suffix);
+  }
+});
+
+function nativeOAuthRuntime({ native = true, launchUrl, getLaunchUrl = async () => launchUrl, exchange = async () => ({ data: { session: {}, user: {} }, error: null }), signIn = async () => ({ data: { provider: 'google', url: 'https://auth.test' }, error: null }) } = {}) {
+  const oauth = load('lib/oauthCallback.ts');
+  const runtime = hookRuntime();
+  const exchanges = [], signIns = [], toasts = [], sessions = [], logs = [];
+  let callback, launchRequests = 0;
+  const auth = {
+    getSession: async () => ({ data: { session: null }, error: null }),
+    onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+    signInWithOAuth: async options => { signIns.push(options); return signIn(options); },
+    exchangeCodeForSession: async code => {
+      exchanges.push(code);
+      const result = await exchange(code);
+      if (result.data.session) sessions.push(result.data.session);
+      return result;
+    },
+    setSession: async session => { sessions.push(session); },
+  };
+  const shared = {
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => native } },
+    '@/lib/supabase': { supabase: { auth } },
+    '@/lib/oauthCallback': oauth,
+    globals: { window: { location: { origin: 'https://pillflow.test' } } },
+  };
+  load('main.tsx', {
+    ...shared,
+    '@capacitor/app': { App: {
+      addListener: (event, listener) => { assert.equal(event, 'appUrlOpen'); callback = listener; return Promise.resolve({ remove() {} }); },
+      getLaunchUrl: () => { launchRequests++; return getLaunchUrl(); },
+    } },
+    '@ionic/pwa-elements/loader': { defineCustomElements() {} },
+    'react-dom/client': { createRoot: () => ({ render() {} }) },
+    sonner: { Toaster: () => null, toast: { error: message => toasts.push(message) } },
+    './App': { default: () => null },
+    './index.css': {},
+    globals: {
+      ...shared.globals,
+      document: { getElementById: () => ({}) },
+      console: { log: (...args) => logs.push(args), warn: (...args) => logs.push(args), error: (...args) => logs.push(args) },
+    },
+  });
+  const { useAuth } = load('hooks/use-auth.ts', { ...shared, react: runtime.react });
+  const hook = runtime.render(() => useAuth());
+  return { hook, open: url => callback({ url }), exchanges, signIns, toasts, sessions, logs, callback, launchRequests };
+}
+
+const oauthFailureMessage = '로그인을 완료하지 못했어요. 다시 시도해 주세요.';
+const missingVerifier = async () => ({
+  data: { session: null, user: null },
+  error: Object.assign(new Error('secret-code: missing verifier'), { name: 'AuthPKCECodeVerifierMissingError' }),
+});
+
+test('native OAuth forwards unsolicited codes to PKCE and reports missing verifier without a session', async () => {
+  const runtime = nativeOAuthRuntime({ exchange: missingVerifier });
+  await runtime.open(nativeCallback + '?code=unsolicited');
+  assert.deepEqual(runtime.exchanges, ['unsolicited']);
+  assert.deepEqual(runtime.sessions, []);
+  assert.deepEqual(runtime.toasts, [oauthFailureMessage]);
+  assert.deepEqual(runtime.logs, []);
+});
+
+test('native OAuth exchanges validated callbacks without a memory-only login marker', async () => {
+  const runtime = nativeOAuthRuntime();
+  for (const url of [nativeCallback + 'x?code=bad', nativeCallback + '?code=bad#access_token=secret', nativeCallback + '?access_token=secret&refresh_token=secret']) {
+    await runtime.open(url);
+  }
+  assert.deepEqual(runtime.exchanges, []);
+  assert.deepEqual(runtime.sessions, []);
+  await runtime.open(nativeCallback + '?code=valid-code');
+  await runtime.open(nativeCallback + '?code=valid-code');
+  assert.deepEqual(runtime.exchanges, ['valid-code']);
+  assert.equal(runtime.sessions.length, 1);
+  assert.deepEqual(runtime.signIns, []);
+});
+
+test('native OAuth ignores duplicate URLs during and after an exchange', async () => {
+  let finish;
+  const runtime = nativeOAuthRuntime({ exchange: () => new Promise(resolve => { finish = resolve; }) });
+  const pending = runtime.open(nativeCallback + '?code=first-code');
+  await runtime.open(nativeCallback + '?code=first-code');
+  assert.deepEqual(runtime.exchanges, ['first-code']);
+  finish({ data: { session: {}, user: {} }, error: null });
+  await pending;
+  await runtime.open(nativeCallback + '?code=first-code');
+  assert.deepEqual(runtime.exchanges, ['first-code']);
+});
+
+test('native OAuth forwards replayed codes in new URLs or a restarted process to PKCE', async () => {
+  const runtime = nativeOAuthRuntime({ exchange: missingVerifier });
+  await runtime.open(nativeCallback + '?code=replayed-code');
+  await runtime.open(nativeCallback + '?code=replayed-code&source=retry');
+  assert.deepEqual(runtime.exchanges, ['replayed-code', 'replayed-code']);
+  assert.deepEqual(runtime.sessions, []);
+  assert.deepEqual(runtime.toasts, [oauthFailureMessage, oauthFailureMessage]);
+
+  const restarted = nativeOAuthRuntime({ exchange: missingVerifier });
+  await restarted.open(nativeCallback + '?code=replayed-code');
+  assert.deepEqual(restarted.exchanges, ['replayed-code']);
+  assert.deepEqual(restarted.sessions, []);
+  assert.deepEqual(restarted.toasts, [oauthFailureMessage]);
+});
+
+test('native OAuth cold-start launch URL is exchanged without a new sign-in call', async () => {
+  const runtime = nativeOAuthRuntime({ launchUrl: { url: nativeCallback + '?code=cold-start-code' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(runtime.launchRequests, 1);
+  assert.deepEqual(runtime.exchanges, ['cold-start-code']);
+  assert.equal(runtime.sessions.length, 1);
+  assert.deepEqual(runtime.signIns, []);
+});
+
+test('native OAuth processes a launch URL and appUrlOpen duplicate only once in either order', async () => {
+  for (const eventFirst of [true, false]) {
+    let launch;
+    const url = nativeCallback + '?code=launch-and-event';
+    const runtime = nativeOAuthRuntime({ getLaunchUrl: () => new Promise(resolve => { launch = resolve; }) });
+    if (eventFirst) await runtime.open(url);
+    launch({ url });
+    await new Promise(resolve => setImmediate(resolve));
+    await runtime.open(url);
+    assert.deepEqual(runtime.exchanges, ['launch-and-event']);
+    assert.equal(runtime.sessions.length, 1);
+    assert.deepEqual(runtime.toasts, []);
+  }
+});
+
+test('native OAuth validates launch URLs and reports launch lookup failures safely', async () => {
+  const invalid = nativeOAuthRuntime({ launchUrl: { url: nativeCallback + '?code=bad#Refresh_Token=secret' } });
+  const failure = nativeOAuthRuntime({ getLaunchUrl: async () => { throw new Error('secret-launch-url'); } });
+  const empty = nativeOAuthRuntime();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(invalid.exchanges, []);
+  assert.deepEqual(invalid.sessions, []);
+  assert.deepEqual(empty.exchanges, []);
+  assert.deepEqual(empty.toasts, []);
+  assert.deepEqual(failure.toasts, [oauthFailureMessage]);
+  assert.deepEqual(failure.logs, []);
+});
+
+test('native OAuth exchange failures notify safely without local login state', async () => {
+  for (const exchange of [
+    async () => ({ data: { session: null, user: null }, error: new Error('secret-code-token') }),
+    async () => { throw new Error('secret-code-token'); },
+  ]) {
+    const runtime = nativeOAuthRuntime({ exchange });
+    await runtime.open(nativeCallback + '?code=secret-code-token');
+    await runtime.open(nativeCallback + '?code=secret-code-token');
+    assert.equal(runtime.exchanges.length, 1);
+    assert.deepEqual(runtime.toasts, [oauthFailureMessage]);
+    assert.deepEqual(runtime.sessions, []);
+    assert.deepEqual(runtime.logs, []);
+    await runtime.open(nativeCallback + '?code=new-code');
+    assert.equal(runtime.exchanges.length, 2);
+  }
+});
+
+test('native OAuth provider errors notify without exchanging or exposing details', async () => {
+  const runtime = nativeOAuthRuntime();
+  await runtime.open(nativeCallback + '?error_description=secret-detail');
+  assert.deepEqual(runtime.exchanges, []);
+  assert.deepEqual(runtime.toasts, [oauthFailureMessage]);
+  assert.deepEqual(runtime.logs, []);
+});
+
+test('native OAuth initiation failures propagate without preventing PKCE callback validation', async () => {
+  for (const signIn of [
+    async () => ({ data: { provider: 'google', url: null }, error: new Error('login failed') }),
+    async () => { throw new Error('login failed'); },
+  ]) {
+    const runtime = nativeOAuthRuntime({ signIn, exchange: missingVerifier });
+    await assert.rejects(runtime.hook.signInWithGoogle(), /login failed/);
+    await runtime.open(nativeCallback + '?code=unsolicited');
+    assert.deepEqual(runtime.exchanges, ['unsolicited']);
+    assert.deepEqual(runtime.sessions, []);
+    assert.deepEqual(runtime.toasts, [oauthFailureMessage]);
+  }
+});
+
+test('native OAuth sign-in keeps the existing redirect URL', async () => {
+  const runtime = nativeOAuthRuntime();
+  await runtime.hook.signInWithGoogle();
+  assert.equal(runtime.signIns[0].options.redirectTo, nativeCallback);
+});
+
+test('web OAuth retains the existing redirect and does not register a native listener', async () => {
+  const runtime = nativeOAuthRuntime({ native: false });
+  await runtime.hook.signInWithGoogle();
+  assert.equal(runtime.signIns[0].options.redirectTo, 'https://pillflow.test');
+  assert.equal(runtime.callback, undefined);
+  assert.equal(runtime.launchRequests, 0);
+});
+
 const medication = { id: 'med-1', completed: false };
 function medicationsRuntime(persist) {
   const runtime = hookRuntime([[medication], false, null]);
@@ -83,6 +353,225 @@ function medicationsRuntime(persist) {
   const hook = runtime.render(() => useMedications('user-1'));
   return { runtime, hook };
 }
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+function medicationIsolationRuntime() {
+  const runtime = hookRuntime();
+  const requests = { fetch: [], add: [], delete: [], toggle: [], reset: [] };
+  const notifications = [];
+  let userId;
+  const onConsentRequired = () => notifications.push(userId);
+  const enqueue = kind => (...args) => {
+    const request = { ...deferred(), args };
+    requests[kind].push(request);
+    return request.promise;
+  };
+  const { useMedications } = load('hooks/use-medications.ts', {
+    react: runtime.react,
+    '@/lib/medicationDataSource': {
+      fetchMedications: enqueue('fetch'), addMedication: enqueue('add'),
+      deleteMedication: enqueue('delete'), toggleMedicationLog: enqueue('toggle'),
+      resetAllMedications: enqueue('reset'),
+    },
+    '@/lib/consentUtils': load('lib/consentUtils.ts'),
+  });
+  const render = (nextUser = userId) => {
+    userId = nextUser;
+    return runtime.render(() => useMedications(userId, onConsentRequired));
+  };
+  return {
+    requests, notifications, render,
+    async settle() {
+      await new Promise(resolve => setImmediate(resolve));
+      runtime.flush();
+      return render();
+    },
+    dispose: runtime.dispose,
+  };
+}
+
+const userAMed = { id: 'shared-id', name: 'A medicine', completed: false };
+const userBMed = { id: 'shared-id', name: 'B medicine', completed: true };
+const staleConsentError = () => Object.assign(new Error('A consent expired'), { code: 'CONSENT_REQUIRED' });
+
+test('SEC-02 logout and B login discard a late A medication fetch', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.render(null);
+  testRuntime.render('B');
+  testRuntime.requests.fetch[1].resolve([userBMed]);
+  assert.deepEqual((await testRuntime.settle()).meds, [userBMed]);
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  const result = await testRuntime.settle();
+  assert.deepEqual(result.meds, [userBMed]);
+  assert.equal(result.loading, false);
+});
+
+test('SEC-02 late A fetch failure cannot overwrite B error or notify consent', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.render('B');
+  testRuntime.requests.fetch[1].reject(new Error('B fetch failed'));
+  assert.equal((await testRuntime.settle()).error, 'B fetch failed');
+  testRuntime.requests.fetch[0].reject(staleConsentError());
+  const result = await testRuntime.settle();
+  assert.equal(result.error, 'B fetch failed');
+  assert.deepEqual(testRuntime.notifications, []);
+});
+
+test('SEC-02 user changes immediately expose empty meds, reset errors, and correct loading', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  let hook = await testRuntime.settle();
+  const refetch = hook.refetch();
+  testRuntime.requests.fetch[1].reject(new Error('A fetch failed'));
+  await refetch;
+  hook = await testRuntime.settle();
+  assert.deepEqual(hook.meds, [userAMed]);
+  assert.equal(hook.error, 'A fetch failed');
+
+  const next = testRuntime.render('B');
+  assert.deepEqual(next.meds, []);
+  assert.equal(next.error, null);
+  assert.equal(next.loading, true);
+  const loggedOut = testRuntime.render(null);
+  assert.deepEqual(loggedOut.meds, []);
+  assert.equal(loggedOut.error, null);
+  assert.equal(loggedOut.loading, false);
+});
+
+test('SEC-02 returning to the same user still invalidates the earlier account generation', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.render(null);
+  testRuntime.render('A');
+  const freshMed = { ...userAMed, name: 'fresh A medicine' };
+  testRuntime.requests.fetch[1].resolve([freshMed]);
+  await testRuntime.settle();
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  assert.deepEqual((await testRuntime.settle()).meds, [freshMed]);
+});
+
+test('SEC-02 overlapping refetches keep only the newest success or failure', async () => {
+  for (const lateFailure of [false, true]) {
+    const testRuntime = medicationIsolationRuntime();
+    const hook = testRuntime.render('A');
+    const newest = hook.refetch();
+    const freshMed = { ...userAMed, name: 'newest result' };
+    testRuntime.requests.fetch[1].resolve([freshMed]);
+    await newest;
+    await testRuntime.settle();
+    if (lateFailure) testRuntime.requests.fetch[0].reject(staleConsentError());
+    else testRuntime.requests.fetch[0].resolve([userAMed]);
+    const result = await testRuntime.settle();
+    assert.deepEqual(result.meds, [freshMed]);
+    assert.equal(result.error, null);
+    assert.deepEqual(testRuntime.notifications, []);
+  }
+});
+
+test('SEC-02 stale fetch completion cannot stop a newer pending fetch loading state', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  const hook = testRuntime.render('A');
+  const newest = hook.refetch();
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  const pending = await testRuntime.settle();
+  assert.equal(pending.loading, true);
+  assert.deepEqual(pending.meds, []);
+  testRuntime.requests.fetch[1].resolve([userAMed]);
+  await newest;
+  assert.equal((await testRuntime.settle()).loading, false);
+});
+
+test('SEC-02 late A toggle failure does not roll back B or notify consent', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  const a = await testRuntime.settle();
+  const toggle = a.toggleMed('shared-id');
+  const expectedError = staleConsentError();
+  const failure = assert.rejects(toggle, error => error === expectedError);
+  await testRuntime.settle();
+  testRuntime.render('B');
+  testRuntime.requests.fetch[1].resolve([userBMed]);
+  await testRuntime.settle();
+  testRuntime.requests.toggle[0].reject(expectedError);
+  await failure;
+  assert.deepEqual((await testRuntime.settle()).meds, [userBMed]);
+  assert.deepEqual(testRuntime.notifications, []);
+});
+
+for (const [method, kind, args] of [
+  ['addMed', 'add', [{ name: 'added A medicine' }]],
+  ['deleteMed', 'delete', ['shared-id']],
+  ['resetAll', 'reset', []],
+]) {
+  test(`SEC-02 late A ${kind} success cannot modify B medicines`, async () => {
+    const testRuntime = medicationIsolationRuntime();
+    testRuntime.render('A');
+    testRuntime.requests.fetch[0].resolve([userAMed]);
+    const a = await testRuntime.settle();
+    const pending = a[method](...args);
+    testRuntime.render('B');
+    testRuntime.requests.fetch[1].resolve([userBMed]);
+    await testRuntime.settle();
+    testRuntime.requests[kind][0].resolve({ ...userAMed, id: 'added-med' });
+    await pending;
+    assert.deepEqual((await testRuntime.settle()).meds, [userBMed]);
+  });
+
+  test(`SEC-02 late A ${kind} failure propagates without notifying B consent`, async () => {
+    const testRuntime = medicationIsolationRuntime();
+    testRuntime.render('A');
+    testRuntime.requests.fetch[0].resolve([userAMed]);
+    const a = await testRuntime.settle();
+    const expectedError = staleConsentError();
+    const failure = assert.rejects(a[method](...args), error => error === expectedError);
+    testRuntime.render('B');
+    testRuntime.requests.fetch[1].resolve([userBMed]);
+    await testRuntime.settle();
+    testRuntime.requests[kind][0].reject(expectedError);
+    await failure;
+    const result = await testRuntime.settle();
+    assert.deepEqual(result.meds, [userBMed]);
+    assert.equal(result.error, null);
+    assert.deepEqual(testRuntime.notifications, []);
+  });
+}
+
+test('SEC-02 stale toggle cleanup cannot unlock the new user pending toggle', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.requests.fetch[0].resolve([userAMed]);
+  const a = await testRuntime.settle();
+  const oldToggle = a.toggleMed('shared-id');
+  testRuntime.render('B');
+  testRuntime.requests.fetch[1].resolve([userBMed]);
+  const b = await testRuntime.settle();
+  const newToggle = b.toggleMed('shared-id');
+  assert.equal(testRuntime.requests.toggle.length, 2);
+  testRuntime.requests.toggle[0].resolve();
+  await oldToggle;
+  await b.toggleMed('shared-id');
+  assert.equal(testRuntime.requests.toggle.length, 2);
+  testRuntime.requests.toggle[1].resolve();
+  await newToggle;
+});
+
+test('SEC-02 unmounted medication requests cannot notify consent', async () => {
+  const testRuntime = medicationIsolationRuntime();
+  testRuntime.render('A');
+  testRuntime.dispose();
+  testRuntime.requests.fetch[0].reject(staleConsentError());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(testRuntime.notifications, []);
+});
 
 function loadApiClient(session = { access_token: 'token-1' }, fetchImpl = async () => ({ ok: true, status: 204 })) {
   return load('lib/apiClient.ts', {
@@ -613,7 +1102,7 @@ function elements(node) {
   return [node, ...elements(node.props?.children)];
 }
 
-for (const [dosage, valid] of [['', false], ['0', false], ['-1', false], ['1', true], ['0.5', true]]) {
+for (const [dosage, valid] of [['', false], ['0', false], ['-1', false], ['1', true], ['0.5', true], ['1'.repeat(20), true], ['1'.repeat(21), false]]) {
   test(`dosage ${JSON.stringify(dosage)} ${valid ? 'allows' : 'blocks'} progression and direct save`, async () => {
     let saves = 0;
     const states = [1, undefined, '테스트약', 'tablet', dosage, '#fff', ['08:00'], [0], null, '', false];
@@ -632,7 +1121,7 @@ for (const [dosage, valid] of [['', false], ['0', false], ['-1', false], ['1', t
       '@/hooks/use-theme': { useTheme: () => ({}) },
       '@/components/common/FormField': {},
       '@/components/modals/TimePicker': {},
-      '@/constants': { MED_COLORS: ['#fff'], DAY_KEYS_MON_FIRST: ['mon'] },
+      '@/constants': { MED_COLORS: ['#fff'], DAY_KEYS_MON_FIRST: ['mon'], MED_INPUT_LIMITS: { name: 100, memo: 1000, dosageDigits: 20 } },
       '@/types': load('types/index.ts'),
     });
     const render = () => AddView({ onBack() {}, onSave: async () => { saves++; }, dark: false });
@@ -947,4 +1436,75 @@ test('off-day medicines can be inspected and deleted without changing today prog
   assert.deepEqual(deleted, ['off-day']);
   assert.deepEqual(toggled, []);
   runtime.dispose();
+});
+
+test('SEC-07 reminders use a private lock-screen channel and remove legacy channels', async () => {
+  const runtime = hookRuntime();
+  const created = [], deleted = [], scheduled = [];
+  const { useNotifications } = load('hooks/use-notifications.ts', {
+    react: runtime.react,
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => true } },
+    '@capacitor/app': { App: { addListener: async () => ({ remove() {} }) } },
+    '@capacitor/local-notifications': {
+      LocalNotifications: {
+        requestPermissions: async () => ({ display: 'granted' }),
+        createChannel: async channel => created.push(channel),
+        deleteChannel: async ({ id }) => deleted.push(id),
+        checkExactNotificationSetting: async () => ({ exact_alarm: 'denied' }),
+        getPending: async () => ({ notifications: [] }),
+        cancel: async () => {},
+        schedule: async request => scheduled.push(request),
+      },
+    },
+    '@/lib/notificationSchedule': { buildMedicationNotifications: (_meds, _cats, channelId) => [{ id: 1, channelId }] },
+  });
+
+  runtime.render(() => useNotifications([{ ...medication, times: ['08:00'], days: ['mon'] }], true, { morning: true, lunch: true, evening: true }));
+  for (let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(created.length, 1);
+  assert.equal(created[0].id, 'pillflow-reminders-v3');
+  assert.equal(created[0].visibility, 0);
+  assert.deepEqual(deleted.sort(), ['pillflow-reminders', 'pillflow-reminders-v2']);
+  // 정확 알람이 거부돼도 JS 스케줄링은 계속한다(부정확 알람 대체는 네이티브 플러그인이 수행)
+  assert.equal(scheduled[0].notifications[0].channelId, 'pillflow-reminders-v3');
+});
+
+test('PLAY-01 exact alarm helpers report status and open the system setting only on native', async () => {
+  const calls = [];
+  const make = native => load('hooks/use-notifications.ts', {
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => native } },
+    '@capacitor/app': { App: { addListener: async () => ({ remove() {} }) } },
+    '@capacitor/local-notifications': {
+      LocalNotifications: {
+        checkExactNotificationSetting: async () => { calls.push('check'); return { exact_alarm: 'denied' }; },
+        changeExactNotificationSetting: async () => { calls.push('change'); return { exact_alarm: 'granted' }; },
+      },
+    },
+    '@/lib/notificationSchedule': { buildMedicationNotifications: () => [] },
+  });
+  const web = make(false);
+  assert.equal(await web.getExactAlarmStatus(), null);
+  assert.equal(await web.openExactAlarmSettings(), null);
+  assert.deepEqual(calls, []);
+  const native = make(true);
+  assert.equal(await native.getExactAlarmStatus(), 'denied');
+  assert.equal(await native.openExactAlarmSettings(), 'granted');
+  assert.deepEqual(calls, ['check', 'change']);
+});
+
+test('PLAY-01/SEC-07 Android manifest drops USE_EXACT_ALARM and excludes app data from backup and transfer', () => {
+  const androidMain = path.resolve(__dirname, '../android/app/src/main');
+  const manifest = fs.readFileSync(path.join(androidMain, 'AndroidManifest.xml'), 'utf8');
+  assert.doesNotMatch(manifest, /android\.permission\.USE_EXACT_ALARM/);
+  assert.match(manifest, /android\.permission\.SCHEDULE_EXACT_ALARM/);
+  assert.match(manifest, /android:allowBackup="false"/);
+  assert.match(manifest, /android:dataExtractionRules="@xml\/data_extraction_rules"/);
+  const rules = fs.readFileSync(path.join(androidMain, 'res/xml/data_extraction_rules.xml'), 'utf8');
+  for (const section of ['cloud-backup', 'device-transfer']) {
+    const body = rules.split(`<${section}>`)[1].split(`</${section}>`)[0];
+    for (const domain of ['root', 'file', 'database', 'sharedpref']) {
+      assert.match(body, new RegExp(`<exclude domain="${domain}" path="\\." />`));
+    }
+  }
 });

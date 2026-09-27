@@ -333,7 +333,7 @@ class BackendIntegrationTest @Autowired constructor(
     private fun hasPrivilege(role: String, table: String, privilege: String): Boolean =
         jdbc.queryForObject("SELECT has_table_privilege(?, ?, ?)", Boolean::class.java, role, "public.$table", privilege)!!
 
-    @Test fun `ALTER 적용 운영 스키마를 baseline하면 V2와 V3가 적용되고 기존 행이 유지된다`() {
+    @Test fun `ALTER 적용 운영 스키마를 baseline하면 V2 이후 마이그레이션이 적용되고 기존 행이 유지된다`() {
         val databaseName = "baseline_${UUID.randomUUID().toString().replace("-", "")}"
         DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
             connection.createStatement().use { it.execute("CREATE DATABASE $databaseName") }
@@ -353,6 +353,10 @@ class BackendIntegrationTest @Autowired constructor(
 
             val baselineJdbc = JdbcTemplate(dataSource)
             baselineJdbc.execute("DROP SCHEMA bootstrap_flyway CASCADE")
+            // 운영에 V4 상한을 넘는 기존 행이 있어도 배포(Flyway)가 실패하지 않아야 한다(NOT VALID 검증).
+            baselineJdbc.update(
+                "UPDATE public.medications SET name=repeat('x',101), dosage=repeat('1',51), memo=repeat('x',1001), color='red', days='{mon,mon}'",
+            )
 
             val flyway = Flyway.configure()
                 .dataSource(databaseUrl, postgres.username, postgres.password)
@@ -364,9 +368,10 @@ class BackendIntegrationTest @Autowired constructor(
                 .load()
 
             flyway.baseline()
-            assertEquals(2, flyway.migrate().migrationsExecuted)
+            // V4 입력 제한은 NOT VALID라 기존 행이 있어도 적용에 실패하지 않아야 한다.
+            assertEquals(4, flyway.migrate().migrationsExecuted)
             assertEquals(
-                listOf("1", "2", "3"),
+                listOf("1", "2", "3", "4", "5"),
                 baselineJdbc.queryForList(
                     "SELECT version FROM flyway.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank",
                     String::class.java,
@@ -375,6 +380,29 @@ class BackendIntegrationTest @Autowired constructor(
             assertEquals(true, baselineJdbc.queryForObject("SELECT rolbypassrls FROM pg_roles WHERE rolname='pillflow_api'", Boolean::class.java))
             assertEquals(0, baselineJdbc.queryForObject("SELECT count(*) FROM public.user_consents", Int::class.java))
             assertEquals(1, baselineJdbc.queryForObject("SELECT count(*) FROM public.medications", Int::class.java))
+            assertEquals(
+                listOf(false, false, false, false, false),
+                baselineJdbc.queryForList(
+                    """
+                    SELECT convalidated FROM pg_constraint
+                    WHERE conrelid = 'public.medications'::regclass AND conname IN (
+                      'medications_name_length_check', 'medications_dosage_length_check', 'medications_memo_length_check',
+                      'medications_color_format_check', 'medications_days_distinct_check')
+                    """.trimIndent(),
+                    Boolean::class.java,
+                ),
+            )
+            listOf("authenticated", "pillflow_api").forEach { role ->
+                assertEquals(
+                    true,
+                    baselineJdbc.queryForObject(
+                        "SELECT has_function_privilege(?, 'public.medication_days_are_distinct(text[])', 'EXECUTE')",
+                        Boolean::class.java,
+                        role,
+                    ),
+                    "$role must execute the days CHECK function",
+                )
+            }
             assertEquals(1, baselineJdbc.queryForObject("SELECT count(*) FROM public.medication_logs", Int::class.java))
             // V1로 새로 만든 스키마와 운영(ALTER 적용 후 baseline) 스키마의 컬럼 정의(타입·NULL 허용·기본값)가 같아야 한다.
             // 컬럼 순서 차이는 허용하므로 ordinal_position이 아니라 컬럼 이름으로 정렬해 비교한다.
@@ -512,6 +540,92 @@ class BackendIntegrationTest @Autowired constructor(
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=? AND consent_type='age_over_14'", Int::class.java, owner))
         assertEquals(1, jdbc.update("DELETE FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'", owner))
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'", Int::class.java, owner))
+        jdbc.execute("RESET ROLE")
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `SEC-04 DB 제약은 API를 거치지 않는 초과 입력을 거부한다`() {
+        val owner = UUID.randomUUID()
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?)", owner)
+        val insertSql = "INSERT INTO public.medications(user_id,name,dosage,memo,color,type,times,days) VALUES (?,?,?,?,?,'tablet','{08:00}',?::text[])"
+        // 상한 값은 저장된다
+        jdbc.update(insertSql, owner, "가".repeat(100), "1".repeat(50), "메".repeat(1000), "#ABCDEF", "{mon,tue,wed,thu,fri,sat,sun}")
+        listOf(
+            arrayOf<Any>(owner, "가".repeat(101), "1", "", "#6C63FF", "{mon}"),
+            arrayOf<Any>(owner, "", "1", "", "#6C63FF", "{mon}"),
+            arrayOf<Any>(owner, "약", "1".repeat(51), "", "#6C63FF", "{mon}"),
+            arrayOf<Any>(owner, "약", "1", "메".repeat(1001), "#6C63FF", "{mon}"),
+            arrayOf<Any>(owner, "약", "1", "", "red", "{mon}"),
+            arrayOf<Any>(owner, "약", "1", "", "#6C63FF", "{mon,mon}"),
+        ).forEach { args ->
+            val failure = assertThrows<DataAccessException> {
+                jdbc.execute(ConnectionCallback { connection ->
+                    val savepoint = connection.setSavepoint()
+                    try {
+                        jdbc.update(insertSql, *args)
+                    } catch (exception: DataAccessException) {
+                        connection.rollback(savepoint)
+                        throw exception
+                    }
+                })
+            }
+            assertEquals("23514", (failure.rootCause as SQLException).sqlState)
+        }
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, owner))
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `SEC-03 사진 분석 쿼터는 사용자별로 분당 5회 일일 30회를 원자적으로 차감한다`() {
+        val owner = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?), (?)", owner, other)
+        fun consumeAs(userId: UUID): Int {
+            jdbc.queryForObject("SELECT set_config('request.jwt.claim.sub', ?, true)", String::class.java, userId.toString())
+            return jdbc.queryForObject("SELECT public.consume_photo_analysis_quota()", Int::class.java)!!
+        }
+
+        jdbc.execute("SET LOCAL ROLE authenticated")
+        repeat(5) { assertEquals(0, consumeAs(owner)) }
+        val retryAfter = consumeAs(owner)
+        assertTrue(retryAfter in 1..60, "분당 한도 초과 시 1~60초 뒤 재시도: $retryAfter")
+        // 다른 사용자의 한도는 독립적이다
+        assertEquals(0, consumeAs(other))
+        // authenticated는 사용량 테이블에 직접 접근할 수 없다
+        assertInsufficientPrivilegeSqlState {
+            jdbc.update("UPDATE public.photo_analysis_usage SET minute_count=0, day_count=0")
+        }
+        jdbc.execute("RESET ROLE")
+        // 거부된 요청은 차감하지 않는다
+        assertEquals(5, jdbc.queryForObject("SELECT day_count FROM public.photo_analysis_usage WHERE user_id=?", Int::class.java, owner))
+
+        // 분 창이 지난 뒤에는 다시 허용되고, 일일 한도에 도달하면 다음 날까지 거부한다
+        jdbc.update("UPDATE public.photo_analysis_usage SET minute_window_start = now() - interval '2 minutes', day_count = 29 WHERE user_id=?", owner)
+        jdbc.execute("SET LOCAL ROLE authenticated")
+        assertEquals(0, consumeAs(owner))
+        val untilTomorrow = consumeAs(owner)
+        assertTrue(untilTomorrow in 1..86_400, "일일 한도 초과 시 자정까지 남은 초: $untilTomorrow")
+        jdbc.execute("RESET ROLE")
+
+        // 날짜가 바뀌면 일일 카운트가 초기화된다
+        jdbc.update("UPDATE public.photo_analysis_usage SET day_window = day_window - 1, minute_window_start = now() - interval '2 minutes' WHERE user_id=?", owner)
+        jdbc.execute("SET LOCAL ROLE authenticated")
+        assertEquals(0, consumeAs(owner))
+        jdbc.execute("RESET ROLE")
+        assertEquals(1, jdbc.queryForObject("SELECT day_count FROM public.photo_analysis_usage WHERE user_id=?", Int::class.java, owner))
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `SEC-03 사진 분석 쿼터 함수는 anon과 미인증 호출을 거부한다`() {
+        assertEquals(false, jdbc.queryForObject("SELECT has_function_privilege('anon', 'public.consume_photo_analysis_quota()', 'EXECUTE')", Boolean::class.java))
+        assertEquals(true, jdbc.queryForObject("SELECT has_function_privilege('authenticated', 'public.consume_photo_analysis_quota()', 'EXECUTE')", Boolean::class.java))
+        jdbc.execute("SET LOCAL ROLE authenticated")
+        jdbc.queryForObject("SELECT set_config('request.jwt.claim.sub', '', true)", String::class.java)
+        assertInsufficientPrivilegeSqlState {
+            jdbc.queryForObject("SELECT public.consume_photo_analysis_quota()", Int::class.java)
+        }
         jdbc.execute("RESET ROLE")
     }
 

@@ -3,6 +3,15 @@ import type { Medication } from "./types";
 // ─── 앱 버전 ─────────────────────────────────────────────────────────────────
 export const APP_VERSION = "1.0.0";
 
+// ─── 약 정보 입력 상한 ──────────────────────────────────────────────────────
+// 백엔드 MedicationService와 DB 마이그레이션 V4의 제약과 같은 값을 유지한다.
+export const MED_INPUT_LIMITS = {
+  name: 100,
+  memo: 1000,
+  // 1회 용량 숫자 입력 길이 (단위와 합친 저장값은 서버에서 50자 제한)
+  dosageDigits: 20,
+} as const;
+
 // ─── 약 색상 팔레트 ──────────────────────────────────────────────────────────
 export const MED_COLORS = [
   "#6C63FF",

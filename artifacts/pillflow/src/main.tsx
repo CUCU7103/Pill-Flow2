@@ -1,9 +1,10 @@
 import { createRoot } from "react-dom/client";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
 import { App as CapApp } from "@capacitor/app";
 import { defineCustomElements } from "@ionic/pwa-elements/loader";
 import { supabase } from "@/lib/supabase";
+import { parseOAuthCallback } from "@/lib/oauthCallback";
 import App from "./App";
 import "./index.css";
 
@@ -13,22 +14,37 @@ defineCustomElements(window);
 
 /**
  * 네이티브 앱(Android/iOS)에서 Google OAuth 콜백 처리
- * com.pillflow.app://callback?access_token=...&refresh_token=... 형태의
- * 딥링크를 Supabase가 처리할 수 있도록 세션을 복원한다
+ * 저장된 PKCE verifier 검증으로 앱 재시작 후에도 authorization code를 교환한다.
  */
 if (Capacitor.isNativePlatform()) {
-  CapApp.addListener("appUrlOpen", async ({ url }) => {
-    if (url.startsWith("com.pillflow.app://callback")) {
-      // URL 파라미터에서 토큰을 추출해 Supabase 세션 설정
-      const params = new URLSearchParams(url.split("#")[1] ?? url.split("?")[1] ?? "");
-      const accessToken = params.get("access_token");
-      const refreshToken = params.get("refresh_token");
+  const handledUrls = new Set<string>();
+  const errorMessage = "로그인을 완료하지 못했어요. 다시 시도해 주세요.";
+  const handleOAuthCallback = async ({ url }: { url: string }) => {
+    const callback = parseOAuthCallback(url);
+    if (!callback || handledUrls.has(url)) return;
 
-      if (accessToken && refreshToken) {
-        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+    // 초기 실행 URL과 이벤트가 같은 콜백을 전달해도 비동기 교환 전에 한 번만 접수한다.
+    handledUrls.add(url);
+
+    try {
+      if ("error" in callback) {
+        toast.error(errorMessage);
+        return;
       }
+      const { error } = await supabase.auth.exchangeCodeForSession(callback.code);
+      if (error) throw error;
+    } catch {
+      // 콜백 URL, 인증 코드, 공급자 오류 원문은 로그나 사용자 메시지에 노출하지 않는다.
+      toast.error(errorMessage);
     }
-  });
+  };
+
+  CapApp.addListener("appUrlOpen", handleOAuthCallback);
+  CapApp.getLaunchUrl()
+    .then(async launchUrl => {
+      if (launchUrl) await handleOAuthCallback(launchUrl);
+    })
+    .catch(() => toast.error(errorMessage));
 }
 
 createRoot(document.getElementById("root")!).render(

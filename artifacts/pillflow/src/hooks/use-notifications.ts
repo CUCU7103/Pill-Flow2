@@ -7,7 +7,10 @@ import type { Medication, NotifCategories } from "@/types";
 
 // 채널 정책(사운드/중요도 등)이 바뀔 때마다 버전을 올려야 한다.
 // Android NotificationChannel은 한 번 생성되면 불변이므로, ID를 바꿔야 새 설정이 기존 사용자에게 적용된다.
-const CHANNEL_ID = "pillflow-reminders-v2";
+// v3: 잠금화면에서는 약 이름·복용량을 숨기도록 visibility를 PRIVATE로 지정했다.
+const CHANNEL_ID = "pillflow-reminders-v3";
+// 이전 버전 채널 — 시스템 알림 설정 화면에 죽은 채널이 남지 않도록 삭제한다.
+const LEGACY_CHANNEL_IDS = ["pillflow-reminders", "pillflow-reminders-v2"];
 let scheduleGeneration = 0;
 
 /**
@@ -76,16 +79,20 @@ async function ensureNotificationChannel() {
       // sound를 생략하면 Android가 시스템 기본 알림음(DEFAULT_NOTIFICATION_URI)을 사용한다.
       // "default" 문자열을 넣으면 플러그인이 R.raw.default 리소스로 해석해 무음이 된다.
       vibration: true,
+      // VISIBILITY_PRIVATE: 잠금화면에는 "내용 숨김"만 표시하고, 잠금 해제 후에 약 이름·복용량을 보여준다.
+      visibility: 0,
     });
   } catch {
     // 채널 생성 실패해도 알림 스케줄링은 계속 진행
   }
 
   // 구 채널 제거 — Android 시스템 알림 설정 화면에 죽은 채널이 남지 않도록 정리
-  try {
-    await LocalNotifications.deleteChannel({ id: "pillflow-reminders" });
-  } catch {
-    // 채널이 없거나 이미 삭제된 경우 무시
+  for (const id of LEGACY_CHANNEL_IDS) {
+    try {
+      await LocalNotifications.deleteChannel({ id });
+    } catch {
+      // 채널이 없거나 이미 삭제된 경우 무시
+    }
   }
 }
 
@@ -134,6 +141,32 @@ async function logExactAlarmSetting() {
     }
   } catch {
     // iOS나 미지원 환경에서는 정확 알람 설정 확인 API가 없을 수 있다.
+  }
+}
+
+/**
+ * 정확한 알람 허용 상태 조회 (Android 12+)
+ * USE_EXACT_ALARM을 쓰지 않으므로 사용자가 허용하지 않으면 알림이 정해진 시간보다 늦게 올 수 있다(지연 상한 보장 없음).
+ * 네이티브가 아니거나 API가 없으면 null을 반환한다.
+ */
+export async function getExactAlarmStatus(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const { exact_alarm } = await LocalNotifications.checkExactNotificationSetting();
+    return exact_alarm;
+  } catch {
+    return null;
+  }
+}
+
+/** 시스템의 "알람 및 리마인더" 설정 화면을 열고, 돌아온 뒤의 허용 상태를 반환한다. */
+export async function openExactAlarmSettings(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const { exact_alarm } = await LocalNotifications.changeExactNotificationSetting();
+    return exact_alarm;
+  } catch {
+    return null;
   }
 }
 
