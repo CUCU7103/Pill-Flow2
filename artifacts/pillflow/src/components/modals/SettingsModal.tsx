@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
-  X, Bell, Moon, User, Shield, Info, LogOut, ChevronRight,
+  X, Bell, Moon, User, Shield, Info, LogOut, ChevronRight, AlarmClock,
 } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { Drawer } from "vaul";
@@ -11,6 +11,7 @@ import { APP_VERSION } from "@/constants";
 import { PrivacyModal } from "./PrivacyModal";
 import { AboutModal } from "./AboutModal";
 import { AccountModal } from "./AccountModal";
+import { getExactAlarmStatus, openExactAlarmSettings } from "@/hooks/use-notifications";
 
 /**
  * 구글 계정 프로필 아바타
@@ -71,6 +72,23 @@ export function SettingsModal({
   const [aboutOpen, setAboutOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const isSubModalOpen = privacyOpen || aboutOpen || accountOpen;
+
+  // 정확한 알람 허용 상태 — 허용되지 않은 Android 12+ 기기에서만 설정 안내를 보여준다.
+  const [exactAlarm, setExactAlarm] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void getExactAlarmStatus().then((status) => {
+      if (active) setExactAlarm(status);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const needsExactAlarm = notif && exactAlarm !== null && exactAlarm !== "granted";
+  const handleOpenExactAlarm = async () => {
+    const status = await openExactAlarmSettings();
+    if (status !== null) setExactAlarm(status);
+  };
 
   // Google 계정에서 표시 이름 추출 (없으면 이메일 앞부분 사용)
   const displayName =
@@ -176,6 +194,24 @@ export function SettingsModal({
                     </div>
                     <Toggle on={notif} onToggle={onToggleNotif} ariaLabel="복용 알림" />
                   </div>
+                  {/* 정확한 알람 허용 안내 — 거부 상태면 알림이 정해진 시간보다 늦게 올 수 있다 */}
+                  {needsExactAlarm && (
+                    <button
+                      onClick={handleOpenExactAlarm}
+                      className="w-full flex items-center gap-4 px-4 py-4 text-left active:opacity-70 min-h-[48px]"
+                    >
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[var(--pf-accent-soft)]">
+                        <AlarmClock size={18} style={{ color: "var(--pf-accent)" }} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-bold" style={{ color: t.text }}>정확한 시간에 알림 받기</p>
+                        <p className="text-xs font-medium" style={{ color: t.subtext }}>
+                          허용하지 않으면 알림이 정해진 시간보다 늦게 올 수 있어요
+                        </p>
+                      </div>
+                      <ChevronRight size={16} style={{ color: t.divider }} />
+                    </button>
+                  )}
                   {/* 다크 모드 */}
                   <div className="flex items-center gap-4 px-4 py-4">
                     <div

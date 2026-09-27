@@ -1437,3 +1437,74 @@ test('off-day medicines can be inspected and deleted without changing today prog
   assert.deepEqual(toggled, []);
   runtime.dispose();
 });
+
+test('SEC-07 reminders use a private lock-screen channel and remove legacy channels', async () => {
+  const runtime = hookRuntime();
+  const created = [], deleted = [], scheduled = [];
+  const { useNotifications } = load('hooks/use-notifications.ts', {
+    react: runtime.react,
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => true } },
+    '@capacitor/app': { App: { addListener: async () => ({ remove() {} }) } },
+    '@capacitor/local-notifications': {
+      LocalNotifications: {
+        requestPermissions: async () => ({ display: 'granted' }),
+        createChannel: async channel => created.push(channel),
+        deleteChannel: async ({ id }) => deleted.push(id),
+        checkExactNotificationSetting: async () => ({ exact_alarm: 'denied' }),
+        getPending: async () => ({ notifications: [] }),
+        cancel: async () => {},
+        schedule: async request => scheduled.push(request),
+      },
+    },
+    '@/lib/notificationSchedule': { buildMedicationNotifications: (_meds, _cats, channelId) => [{ id: 1, channelId }] },
+  });
+
+  runtime.render(() => useNotifications([{ ...medication, times: ['08:00'], days: ['mon'] }], true, { morning: true, lunch: true, evening: true }));
+  for (let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(created.length, 1);
+  assert.equal(created[0].id, 'pillflow-reminders-v3');
+  assert.equal(created[0].visibility, 0);
+  assert.deepEqual(deleted.sort(), ['pillflow-reminders', 'pillflow-reminders-v2']);
+  // 정확 알람이 거부돼도 JS 스케줄링은 계속한다(부정확 알람 대체는 네이티브 플러그인이 수행)
+  assert.equal(scheduled[0].notifications[0].channelId, 'pillflow-reminders-v3');
+});
+
+test('PLAY-01 exact alarm helpers report status and open the system setting only on native', async () => {
+  const calls = [];
+  const make = native => load('hooks/use-notifications.ts', {
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => native } },
+    '@capacitor/app': { App: { addListener: async () => ({ remove() {} }) } },
+    '@capacitor/local-notifications': {
+      LocalNotifications: {
+        checkExactNotificationSetting: async () => { calls.push('check'); return { exact_alarm: 'denied' }; },
+        changeExactNotificationSetting: async () => { calls.push('change'); return { exact_alarm: 'granted' }; },
+      },
+    },
+    '@/lib/notificationSchedule': { buildMedicationNotifications: () => [] },
+  });
+  const web = make(false);
+  assert.equal(await web.getExactAlarmStatus(), null);
+  assert.equal(await web.openExactAlarmSettings(), null);
+  assert.deepEqual(calls, []);
+  const native = make(true);
+  assert.equal(await native.getExactAlarmStatus(), 'denied');
+  assert.equal(await native.openExactAlarmSettings(), 'granted');
+  assert.deepEqual(calls, ['check', 'change']);
+});
+
+test('PLAY-01/SEC-07 Android manifest drops USE_EXACT_ALARM and excludes app data from backup and transfer', () => {
+  const androidMain = path.resolve(__dirname, '../android/app/src/main');
+  const manifest = fs.readFileSync(path.join(androidMain, 'AndroidManifest.xml'), 'utf8');
+  assert.doesNotMatch(manifest, /android\.permission\.USE_EXACT_ALARM/);
+  assert.match(manifest, /android\.permission\.SCHEDULE_EXACT_ALARM/);
+  assert.match(manifest, /android:allowBackup="false"/);
+  assert.match(manifest, /android:dataExtractionRules="@xml\/data_extraction_rules"/);
+  const rules = fs.readFileSync(path.join(androidMain, 'res/xml/data_extraction_rules.xml'), 'utf8');
+  for (const section of ['cloud-backup', 'device-transfer']) {
+    const body = rules.split(`<${section}>`)[1].split(`</${section}>`)[0];
+    for (const domain of ['root', 'file', 'database', 'sharedpref']) {
+      assert.match(body, new RegExp(`<exclude domain="${domain}" path="\\." />`));
+    }
+  }
+});
