@@ -7,4 +7,6 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 .env.local에 설정해주세요");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: { flowType: "pkce" },
+});

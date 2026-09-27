@@ -72,6 +72,276 @@ function load(relativePath, overrides = {}) {
   return module.exports;
 }
 
+const nativeCallback = 'com.pillflow.app://callback';
+
+test('Supabase uses PKCE without disabling automatic web callback detection', () => {
+  let options;
+  load('lib/supabase.ts', {
+    '@supabase/supabase-js': { createClient: (_url, _key, config) => { options = config; return {}; } },
+    sourceTransform: source => source.replaceAll('import.meta.env', JSON.stringify({ VITE_SUPABASE_URL: 'https://auth.test', VITE_SUPABASE_ANON_KEY: 'public-key' })),
+  });
+  assert.equal(options?.auth?.flowType, 'pkce');
+  assert.notEqual(options.auth.detectSessionInUrl, false);
+});
+
+test('OAuth callback accepts a single authorization code in query or fragment', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const suffix of ['?code=auth-code', '#code=auth-code', '?other=value#code=auth-code', '?code=auth-code#other=value']) {
+    assert.deepEqual(parseOAuthCallback(nativeCallback + suffix), { code: 'auth-code' });
+  }
+  assert.deepEqual(parseOAuthCallback(nativeCallback + '?code=A0%2E_%7E-'), { code: 'A0._~-' });
+  assert.deepEqual(parseOAuthCallback(nativeCallback + '?code=' + 'a'.repeat(512)), { code: 'a'.repeat(512) });
+});
+
+test('OAuth callback rejects codes outside the bounded URL-safe allowlist', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const code of ['a'.repeat(513), 'a+b/c', 'a b', '\na', 'a\n', 'a\r', 'a\t', 'a\0', '한글', 'a?b', 'a#b', 'a&b', 'a=b', '%']) {
+    for (const separator of ['?', '#']) {
+      assert.equal(parseOAuthCallback(nativeCallback + separator + 'code=' + encodeURIComponent(code)), null, JSON.stringify(code));
+    }
+  }
+});
+
+test('OAuth callback rejects lookalike schemes, authorities, and paths', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const url of [
+    'com.pillflow.app://callback.evil?code=x',
+    'com.pillflow.app://callbackx?code=x',
+    'com.pillflow.app://evil/callback?code=x',
+    'https://callback?code=x',
+    'evil://callback?code=x',
+    'com.pillflow.app://callback/extra?code=x',
+    'com.pillflow.app://callback/?code=x',
+    'com.pillflow.app://callback@evil?code=x',
+    'com.pillflow.app://callback:123?code=x',
+    'com.pillflow.app://callback%3Fcode=x',
+    ' com.pillflow.app://callback?code=x',
+    'COM.PILLFLOW.APP://callback?code=x',
+  ]) assert.equal(parseOAuthCallback(url), null, url);
+});
+
+test('OAuth callback rejects tokens in either parameter section even alongside a code', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const token of ['access_token', 'refresh_token', 'access%5Ftoken', 'refresh%5Ftoken', 'ACCESS_TOKEN', 'ReFrEsH_ToKeN', 'access_token_extra', 'refresh_token[]', 'Access%5FTokenHint', 'refresh_tokenization']) {
+    for (const suffix of [
+      `?${token}=secret`, `#${token}=secret`,
+      `?code=x&${token}=secret`, `#code=x&${token}=secret`,
+      `?code=x#${token}=secret`, `?${token}=secret#code=x`,
+      `?code=x&${token}=`, `?code=x#${token}`,
+    ]) assert.equal(parseOAuthCallback(nativeCallback + suffix), null, suffix);
+  }
+});
+
+test('OAuth callback classifies provider errors without exposing their contents', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const suffix of [
+    '?error=access_denied', '#error=access_denied',
+    '?error_description=sensitive-detail', '#error_description=sensitive-detail',
+    '?error_code=provider-code', '#error_code=provider-code', '?code=x#error_code=',
+    '?code=x#error=access_denied', '?error=access_denied#code=x',
+    '?error=', '#error_description=',
+  ]) assert.deepEqual(parseOAuthCallback(nativeCallback + suffix), { error: true });
+  assert.equal(parseOAuthCallback(nativeCallback + '?error=denied#access_token=secret'), null);
+});
+
+test('OAuth callback rejects missing, blank, and ambiguous authorization codes', () => {
+  const { parseOAuthCallback } = load('lib/oauthCallback.ts');
+  for (const suffix of ['', '?', '#', '?state=x', '?code=', '#code=', '?code=%20', '?code=x&code=y', '?code=x#code=y']) {
+    assert.equal(parseOAuthCallback(nativeCallback + suffix), null, suffix);
+  }
+});
+
+function nativeOAuthRuntime({ native = true, launchUrl, getLaunchUrl = async () => launchUrl, exchange = async () => ({ data: { session: {}, user: {} }, error: null }), signIn = async () => ({ data: { provider: 'google', url: 'https://auth.test' }, error: null }) } = {}) {
+  const oauth = load('lib/oauthCallback.ts');
+  const runtime = hookRuntime();
+  const exchanges = [], signIns = [], toasts = [], sessions = [], logs = [];
+  let callback, launchRequests = 0;
+  const auth = {
+    getSession: async () => ({ data: { session: null }, error: null }),
+    onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+    signInWithOAuth: async options => { signIns.push(options); return signIn(options); },
+    exchangeCodeForSession: async code => {
+      exchanges.push(code);
+      const result = await exchange(code);
+      if (result.data.session) sessions.push(result.data.session);
+      return result;
+    },
+    setSession: async session => { sessions.push(session); },
+  };
+  const shared = {
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => native } },
+    '@/lib/supabase': { supabase: { auth } },
+    '@/lib/oauthCallback': oauth,
+    globals: { window: { location: { origin: 'https://pillflow.test' } } },
+  };
+  load('main.tsx', {
+    ...shared,
+    '@capacitor/app': { App: {
+      addListener: (event, listener) => { assert.equal(event, 'appUrlOpen'); callback = listener; return Promise.resolve({ remove() {} }); },
+      getLaunchUrl: () => { launchRequests++; return getLaunchUrl(); },
+    } },
+    '@ionic/pwa-elements/loader': { defineCustomElements() {} },
+    'react-dom/client': { createRoot: () => ({ render() {} }) },
+    sonner: { Toaster: () => null, toast: { error: message => toasts.push(message) } },
+    './App': { default: () => null },
+    './index.css': {},
+    globals: {
+      ...shared.globals,
+      document: { getElementById: () => ({}) },
+      console: { log: (...args) => logs.push(args), warn: (...args) => logs.push(args), error: (...args) => logs.push(args) },
+    },
+  });
+  const { useAuth } = load('hooks/use-auth.ts', { ...shared, react: runtime.react });
+  const hook = runtime.render(() => useAuth());
+  return { hook, open: url => callback({ url }), exchanges, signIns, toasts, sessions, logs, callback, launchRequests };
+}
+
+const oauthFailureMessage = '로그인을 완료하지 못했어요. 다시 시도해 주세요.';
+const missingVerifier = async () => ({
+  data: { session: null, user: null },
+  error: Object.assign(new Error('secret-code: missing verifier'), { name: 'AuthPKCECodeVerifierMissingError' }),
+});
+
+test('native OAuth forwards unsolicited codes to PKCE and reports missing verifier without a session', async () => {
+  const runtime = nativeOAuthRuntime({ exchange: missingVerifier });
+  await runtime.open(nativeCallback + '?code=unsolicited');
+  assert.deepEqual(runtime.exchanges, ['unsolicited']);
+  assert.deepEqual(runtime.sessions, []);
+  assert.deepEqual(runtime.toasts, [oauthFailureMessage]);
+  assert.deepEqual(runtime.logs, []);
+});
+
+test('native OAuth exchanges validated callbacks without a memory-only login marker', async () => {
+  const runtime = nativeOAuthRuntime();
+  for (const url of [nativeCallback + 'x?code=bad', nativeCallback + '?code=bad#access_token=secret', nativeCallback + '?access_token=secret&refresh_token=secret']) {
+    await runtime.open(url);
+  }
+  assert.deepEqual(runtime.exchanges, []);
+  assert.deepEqual(runtime.sessions, []);
+  await runtime.open(nativeCallback + '?code=valid-code');
+  await runtime.open(nativeCallback + '?code=valid-code');
+  assert.deepEqual(runtime.exchanges, ['valid-code']);
+  assert.equal(runtime.sessions.length, 1);
+  assert.deepEqual(runtime.signIns, []);
+});
+
+test('native OAuth ignores duplicate URLs during and after an exchange', async () => {
+  let finish;
+  const runtime = nativeOAuthRuntime({ exchange: () => new Promise(resolve => { finish = resolve; }) });
+  const pending = runtime.open(nativeCallback + '?code=first-code');
+  await runtime.open(nativeCallback + '?code=first-code');
+  assert.deepEqual(runtime.exchanges, ['first-code']);
+  finish({ data: { session: {}, user: {} }, error: null });
+  await pending;
+  await runtime.open(nativeCallback + '?code=first-code');
+  assert.deepEqual(runtime.exchanges, ['first-code']);
+});
+
+test('native OAuth forwards replayed codes in new URLs or a restarted process to PKCE', async () => {
+  const runtime = nativeOAuthRuntime({ exchange: missingVerifier });
+  await runtime.open(nativeCallback + '?code=replayed-code');
+  await runtime.open(nativeCallback + '?code=replayed-code&source=retry');
+  assert.deepEqual(runtime.exchanges, ['replayed-code', 'replayed-code']);
+  assert.deepEqual(runtime.sessions, []);
+  assert.deepEqual(runtime.toasts, [oauthFailureMessage, oauthFailureMessage]);
+
+  const restarted = nativeOAuthRuntime({ exchange: missingVerifier });
+  await restarted.open(nativeCallback + '?code=replayed-code');
+  assert.deepEqual(restarted.exchanges, ['replayed-code']);
+  assert.deepEqual(restarted.sessions, []);
+  assert.deepEqual(restarted.toasts, [oauthFailureMessage]);
+});
+
+test('native OAuth cold-start launch URL is exchanged without a new sign-in call', async () => {
+  const runtime = nativeOAuthRuntime({ launchUrl: { url: nativeCallback + '?code=cold-start-code' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(runtime.launchRequests, 1);
+  assert.deepEqual(runtime.exchanges, ['cold-start-code']);
+  assert.equal(runtime.sessions.length, 1);
+  assert.deepEqual(runtime.signIns, []);
+});
+
+test('native OAuth processes a launch URL and appUrlOpen duplicate only once in either order', async () => {
+  for (const eventFirst of [true, false]) {
+    let launch;
+    const url = nativeCallback + '?code=launch-and-event';
+    const runtime = nativeOAuthRuntime({ getLaunchUrl: () => new Promise(resolve => { launch = resolve; }) });
+    if (eventFirst) await runtime.open(url);
+    launch({ url });
+    await new Promise(resolve => setImmediate(resolve));
+    await runtime.open(url);
+    assert.deepEqual(runtime.exchanges, ['launch-and-event']);
+    assert.equal(runtime.sessions.length, 1);
+    assert.deepEqual(runtime.toasts, []);
+  }
+});
+
+test('native OAuth validates launch URLs and reports launch lookup failures safely', async () => {
+  const invalid = nativeOAuthRuntime({ launchUrl: { url: nativeCallback + '?code=bad#Refresh_Token=secret' } });
+  const failure = nativeOAuthRuntime({ getLaunchUrl: async () => { throw new Error('secret-launch-url'); } });
+  const empty = nativeOAuthRuntime();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(invalid.exchanges, []);
+  assert.deepEqual(invalid.sessions, []);
+  assert.deepEqual(empty.exchanges, []);
+  assert.deepEqual(empty.toasts, []);
+  assert.deepEqual(failure.toasts, [oauthFailureMessage]);
+  assert.deepEqual(failure.logs, []);
+});
+
+test('native OAuth exchange failures notify safely without local login state', async () => {
+  for (const exchange of [
+    async () => ({ data: { session: null, user: null }, error: new Error('secret-code-token') }),
+    async () => { throw new Error('secret-code-token'); },
+  ]) {
+    const runtime = nativeOAuthRuntime({ exchange });
+    await runtime.open(nativeCallback + '?code=secret-code-token');
+    await runtime.open(nativeCallback + '?code=secret-code-token');
+    assert.equal(runtime.exchanges.length, 1);
+    assert.deepEqual(runtime.toasts, [oauthFailureMessage]);
+    assert.deepEqual(runtime.sessions, []);
+    assert.deepEqual(runtime.logs, []);
+    await runtime.open(nativeCallback + '?code=new-code');
+    assert.equal(runtime.exchanges.length, 2);
+  }
+});
+
+test('native OAuth provider errors notify without exchanging or exposing details', async () => {
+  const runtime = nativeOAuthRuntime();
+  await runtime.open(nativeCallback + '?error_description=secret-detail');
+  assert.deepEqual(runtime.exchanges, []);
+  assert.deepEqual(runtime.toasts, [oauthFailureMessage]);
+  assert.deepEqual(runtime.logs, []);
+});
+
+test('native OAuth initiation failures propagate without preventing PKCE callback validation', async () => {
+  for (const signIn of [
+    async () => ({ data: { provider: 'google', url: null }, error: new Error('login failed') }),
+    async () => { throw new Error('login failed'); },
+  ]) {
+    const runtime = nativeOAuthRuntime({ signIn, exchange: missingVerifier });
+    await assert.rejects(runtime.hook.signInWithGoogle(), /login failed/);
+    await runtime.open(nativeCallback + '?code=unsolicited');
+    assert.deepEqual(runtime.exchanges, ['unsolicited']);
+    assert.deepEqual(runtime.sessions, []);
+    assert.deepEqual(runtime.toasts, [oauthFailureMessage]);
+  }
+});
+
+test('native OAuth sign-in keeps the existing redirect URL', async () => {
+  const runtime = nativeOAuthRuntime();
+  await runtime.hook.signInWithGoogle();
+  assert.equal(runtime.signIns[0].options.redirectTo, nativeCallback);
+});
+
+test('web OAuth retains the existing redirect and does not register a native listener', async () => {
+  const runtime = nativeOAuthRuntime({ native: false });
+  await runtime.hook.signInWithGoogle();
+  assert.equal(runtime.signIns[0].options.redirectTo, 'https://pillflow.test');
+  assert.equal(runtime.callback, undefined);
+  assert.equal(runtime.launchRequests, 0);
+});
+
 const medication = { id: 'med-1', completed: false };
 function medicationsRuntime(persist) {
   const runtime = hookRuntime([[medication], false, null]);
