@@ -115,6 +115,13 @@ export default function App() {
     });
   }, [consent.markWithdrawn, consent.reload]);
 
+  const handleMedicationResetFailed = useCallback(() => {
+    reloadingConsentRef.current = true;
+    void consent.reload().finally(() => {
+      reloadingConsentRef.current = false;
+    });
+  }, [consent.reload]);
+
   const recordPhotoConsent = useCallback(() => consent.save(["photo_analysis"]), [consent.save]);
 
   // Google OAuth 세션 확인 중
@@ -175,6 +182,7 @@ export default function App() {
       onConsentRequired={handleConsentRequired}
       onMedicationQuerySucceeded={handleMedicationQuerySucceeded}
       onMedicationReset={handleMedicationReset}
+      onMedicationResetFailed={handleMedicationResetFailed}
     />
   );
 }
@@ -190,6 +198,7 @@ function AuthenticatedApp({
   onConsentRequired,
   onMedicationQuerySucceeded,
   onMedicationReset,
+  onMedicationResetFailed,
 }: {
   user: User;
   dark: boolean;
@@ -200,6 +209,7 @@ function AuthenticatedApp({
   onConsentRequired: () => void;
   onMedicationQuerySucceeded: () => void;
   onMedicationReset: () => void;
+  onMedicationResetFailed: () => void;
 }) {
   const reduceMotion = useReducedMotion();
   const [view, setView] = useState<View>("today");
@@ -215,9 +225,14 @@ function AuthenticatedApp({
   const { meds, loading: medsLoading, error: medsError, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user.id, onConsentRequired);
 
   const handleResetAll = useCallback(async () => {
-    await resetAll();
-    onMedicationReset();
-  }, [resetAll, onMedicationReset]);
+    try {
+      await resetAll();
+      onMedicationReset();
+    } catch (error) {
+      onMedicationResetFailed();
+      throw error;
+    }
+  }, [resetAll, onMedicationReset, onMedicationResetFailed]);
 
   useEffect(() => {
     if (!medsLoading && !medsError) onMedicationQuerySucceeded();

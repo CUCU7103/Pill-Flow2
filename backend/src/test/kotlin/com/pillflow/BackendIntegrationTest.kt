@@ -10,6 +10,7 @@ import com.pillflow.medication.MedicationRequest
 import com.pillflow.medication.MedicationRepository
 import com.pillflow.medication.MedicationService
 import com.pillflow.medication.MedicationType
+import com.pillflow.consent.ConsentRepository
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
@@ -39,6 +40,9 @@ import org.springframework.jdbc.core.ConnectionCallback
 import org.springframework.jdbc.datasource.DriverManagerDataSource
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
+import jakarta.persistence.EntityManager
 import org.springframework.dao.DataAccessException
 import org.springframework.dao.DataIntegrityViolationException
 import org.flywaydb.core.Flyway
@@ -50,6 +54,9 @@ import java.time.LocalDate
 import java.util.UUID
 import java.time.Instant
 import java.util.Date
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.sql.SQLException
 import java.sql.Timestamp
 import java.sql.DriverManager
@@ -76,7 +83,10 @@ class BackendIntegrationTest @Autowired constructor(
     private val logs: MedicationLogRepository,
     private val medicationService: MedicationService,
     private val intakeService: IntakeService,
+    private val consents: ConsentRepository,
     private val jdbc: JdbcTemplate,
+    private val transactionManager: PlatformTransactionManager,
+    private val entityManager: EntityManager,
     private val mockMvc: MockMvc,
 ) {
     companion object {
@@ -122,6 +132,87 @@ class BackendIntegrationTest @Autowired constructor(
         assertEquals(ErrorCode.CONSENT_REQUIRED, takeFailure.errorCode)
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, userId))
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.medication_logs WHERE user_id=?", Int::class.java, userId))
+    }
+
+    @Test
+    fun `advisory lock serializes medication creation with consent withdrawal`() {
+        val userId = UUID.randomUUID()
+        val transaction = TransactionTemplate(transactionManager)
+        val executor = Executors.newFixedThreadPool(2)
+        val lockHeld = CountDownLatch(1)
+        val allowWithdrawalCommit = CountDownLatch(1)
+        val createStarted = CountDownLatch(1)
+        val createFinished = CountDownLatch(1)
+        val request = MedicationRequest(
+            name = "철회 경합 약",
+            dosage = "1",
+            times = listOf("08:00"),
+            type = "tablet",
+            days = listOf("mon"),
+        )
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?)", userId)
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'age_over_14','2026-09-27'), (?,'sensitive_health','2026-09-27')",
+            userId,
+            userId,
+        )
+
+        try {
+            val withdrawal = executor.submit {
+                transaction.executeWithoutResult {
+                    consents.lockUserForDataReset(userId)
+                    val jdbcPid = jdbc.queryForObject("SELECT pg_backend_pid()", Int::class.java)!!
+                    val jpaPid = (entityManager.createNativeQuery("SELECT pg_backend_pid()").singleResult as Number).toInt()
+                    assertEquals(jdbcPid, jpaPid, "JdbcTemplate과 JPA는 같은 트랜잭션 커넥션을 사용한다")
+                    assertTrue(
+                        jdbc.queryForObject(
+                            "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND granted",
+                            Int::class.java,
+                        )!! > 0,
+                        "현재 트랜잭션이 사용자 advisory lock을 보유한다",
+                    )
+                    lockHeld.countDown()
+                    assertTrue(allowWithdrawalCommit.await(10, TimeUnit.SECONDS), "철회 트랜잭션 대기 시간 초과")
+                    assertEquals(
+                        1,
+                        jdbc.update(
+                            "DELETE FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'",
+                            userId,
+                        ),
+                    )
+                }
+            }
+
+            assertTrue(lockHeld.await(5, TimeUnit.SECONDS), "철회 트랜잭션이 advisory lock을 얻지 못했다")
+            val creation = executor.submit<BusinessException?> {
+                createStarted.countDown()
+                try {
+                    medicationService.create(userId, request)
+                    null
+                } catch (failure: BusinessException) {
+                    failure
+                } finally {
+                    createFinished.countDown()
+                }
+            }
+            assertTrue(createStarted.await(5, TimeUnit.SECONDS), "복약 생성 작업이 시작되지 않았다")
+            assertFalse(createFinished.await(500, TimeUnit.MILLISECONDS), "생성은 철회 트랜잭션의 advisory lock에서 대기해야 한다")
+
+            allowWithdrawalCommit.countDown()
+            withdrawal.get(10, TimeUnit.SECONDS)
+            val failure = creation.get(10, TimeUnit.SECONDS)
+            assertNotNull(failure, "동의 철회 커밋 뒤 복약 생성은 거부되어야 한다")
+            assertEquals(ErrorCode.CONSENT_REQUIRED, failure!!.errorCode)
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, userId))
+        } finally {
+            allowWithdrawalCommit.countDown()
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS), "동시성 테스트 작업이 시간 안에 끝나야 한다")
+            jdbc.update("DELETE FROM public.medication_logs WHERE user_id=?", userId)
+            jdbc.update("DELETE FROM public.medications WHERE user_id=?", userId)
+            jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", userId)
+            jdbc.update("DELETE FROM auth.users WHERE id=?", userId)
+        }
     }
 
     @Test fun `엔티티 배열과 enum을 저장하고 조회한다`() {

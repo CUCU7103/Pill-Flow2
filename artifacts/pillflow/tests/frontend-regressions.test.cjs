@@ -731,6 +731,54 @@ test('App cancels notifications for confirmed incomplete consent and before cons
   assert.equal(signOutCalls, 1);
 });
 
+test('failed medication reset reloads consent and propagates the original error', async () => {
+  const runtime = hookRuntime();
+  const expectedError = new Error('medication reset failed');
+  let consentReloads = 0;
+  let successfulResetCallbacks = 0;
+  const jsx = (type, props) => ({ type, props });
+  const { AuthenticatedApp } = load('App.tsx', {
+    react: runtime.react,
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    'framer-motion': { motion: new Proxy({}, { get: (_, key) => key }), AnimatePresence: 'AnimatePresence', useReducedMotion: () => false },
+    sonner: { toast: { dismiss() {}, success() {}, error() {} } },
+    '@/hooks/use-persisted': { usePersisted: (_key, initial) => runtime.react.useState(initial) },
+    '@/hooks/use-theme': { useDarkMode() {} },
+    '@/hooks/use-android-back-button': { useAndroidBackButton() {} },
+    '@/hooks/use-medications': { useMedications: () => ({ meds: [], loading: false, error: null, addMed() {}, deleteMed() {}, toggleMed() {}, resetAll: async () => { throw expectedError; }, refetch() {} }) },
+    '@/hooks/use-auth': { useAuth: () => ({}) },
+    '@/hooks/use-notifications': { useNotifications() {}, cancelAllNotifications: async () => {} },
+    '@/hooks/use-day-change': { useDayChange() {} },
+    '@/hooks/use-consent': { useConsent: () => ({}) },
+    '@/lib/consentUtils': load('lib/consentUtils.ts'),
+    '@/components/common/BottomNav': { BottomNav: 'BottomNav' },
+    '@/components/views/TodayView': { TodayView: 'TodayView' },
+    '@/components/views/AddView': { AddView: 'AddView' },
+    '@/components/views/StatsView': { StatsView: 'StatsView' },
+    '@/components/views/ConsentView': { ConsentView: 'ConsentView' },
+    '@/components/views/LoginView': { LoginView: 'LoginView' },
+    '@/components/modals/SettingsModal': { SettingsModal: 'SettingsModal' },
+    '@/constants': { DAY_KEYS_SUN_FIRST: [] },
+    sourceTransform: source => `${source}\nexport { AuthenticatedApp };`,
+  });
+  const props = {
+    user: { id: 'user-1' }, dark: false, setDark() {}, signOut: async () => {}, photoAnalysis: false,
+    onPhotoConsent: async () => {}, onConsentRequired() {}, onMedicationQuerySucceeded() {},
+    onMedicationReset() { successfulResetCallbacks++; },
+    onMedicationResetFailed() { consentReloads++; },
+  };
+
+  let tree = runtime.render(() => AuthenticatedApp(props));
+  elements(tree).find(node => node.type === 'TodayView').props.onOpenSettings();
+  runtime.flush();
+  tree = runtime.render(() => AuthenticatedApp(props));
+  const settings = elements(tree).find(node => node.type === 'SettingsModal');
+
+  await assert.rejects(settings.props.onResetAll(), error => error === expectedError);
+  assert.equal(consentReloads, 1);
+  assert.equal(successfulResetCallbacks, 0);
+});
+
 test('cancelAllNotifications does nothing on web', async () => {
   let calls = 0;
   const notifications = load('hooks/use-notifications.ts', {

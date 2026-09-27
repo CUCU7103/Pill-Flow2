@@ -18,7 +18,12 @@ CREATE POLICY user_consents_select ON public.user_consents FOR SELECT TO authent
   USING ((select auth.uid()) = user_id);
 CREATE POLICY user_consents_insert ON public.user_consents FOR INSERT TO authenticated
   WITH CHECK ((select auth.uid()) = user_id AND policy_version = '2026-09-27');
--- 정책 버전을 올릴 때는 새 마이그레이션에서 이 INSERT 정책의 버전도 함께 갱신한다.
+-- 정책 버전을 올릴 때는 다음 세 곳을 함께 갱신한다:
+-- 1) 새 마이그레이션의 ALTER POLICY user_consents_insert ... WITH CHECK (...)
+-- 2) backend/.../consent/ConsentService.kt의 CURRENT_POLICY_VERSION
+-- 3) artifacts/pillflow/src/lib/consentUtils.ts의 POLICY_VERSION
+-- 새 마이그레이션을 앱보다 먼저 적용해야 한다. 앱이 먼저 배포되면 직접 모드 동의 저장이 42501로 실패해 사용자가 ConsentView에서 벗어나지 못한다.
+-- V3는 운영 적용 후 수정할 수 없으며, 이후 변경은 V4 이상으로 추가한다.
 CREATE POLICY user_consents_delete ON public.user_consents FOR DELETE TO authenticated
   USING ((select auth.uid()) = user_id AND consent_type IN ('sensitive_health','photo_analysis'));
 
