@@ -52,6 +52,15 @@ export function useNotifications(
       listenerPromise.then((l) => l.remove()).catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    // 로그아웃·계정 전환·필수 동의 해제로 앱 본체가 내려가면 이전 사용자의 예약 알림을 취소한다.
+    return () => {
+      void cancelAllNotifications();
+    };
+  }, []);
 }
 
 /** 알림 채널 생성 (Android 8.0+ 필수 - 채널 단위로 소리/진동 설정) */

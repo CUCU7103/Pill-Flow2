@@ -1,14 +1,20 @@
 import { useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { PrivacyModal } from "@/components/modals/PrivacyModal";
-import { canStartWithConsent, type ConsentStatus, type ConsentType } from "@/lib/consentUtils";
+import {
+  canStartWithConsent,
+  CONSENT_VERSION_UPDATE_MESSAGE,
+  isConsentVersionMismatchError,
+  type ConsentStatus,
+  type ConsentType,
+} from "@/lib/consentUtils";
 
 const sensitiveHealthNotices = [
   ["목적", "복약 일정 관리, 복용 기록, 통계 제공"],
   ["항목", "약 이름, 용량, 종류, 복용 시간·요일, 메모, 날짜별 복용 기록"],
   ["보유기간", "회원 탈퇴 시까지(탈퇴 요청 후 10일 이내 파기)"],
   ["거부 권리와 불이익", "동의를 거부할 수 있으며, 거부하면 복약 기록 기능을 이용할 수 없습니다."],
-  ["국외 처리 사실", "일본(AWS·Supabase)에서 저장·처리된다는 사실"],
+  ["국외 처리 사실", "일본(도쿄)의 AWS·Supabase 서버에서 저장·처리됩니다."],
 ] as const;
 
 export function ConsentView({
@@ -36,8 +42,10 @@ export function ConsentView({
     setError(null);
     try {
       await onAgree(["age_over_14", "sensitive_health"]);
-    } catch {
-      setError("동의를 저장하지 못했어요. 다시 시도해 주세요.");
+    } catch (saveError) {
+      setError(isConsentVersionMismatchError(saveError)
+        ? CONSENT_VERSION_UPDATE_MESSAGE
+        : "동의를 저장하지 못했어요. 다시 시도해 주세요.");
     } finally {
       setSaving(false);
     }
@@ -65,7 +73,7 @@ export function ConsentView({
         </header>
 
         <section className="space-y-3 rounded-3xl border border-pf-divider bg-pf-card p-4" aria-label="필수 확인 항목">
-          <label htmlFor="consent-age-over-14" className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold focus-within:ring-2 focus-within:ring-[var(--pf-accent)] focus-within:ring-offset-2">
+          <label htmlFor="consent-age-over-14" className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold">
             <input
               id="consent-age-over-14"
               type="checkbox"
@@ -78,7 +86,7 @@ export function ConsentView({
           </label>
 
           <div className="border-t border-pf-divider pt-3">
-            <label htmlFor="consent-sensitive-health" className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold focus-within:ring-2 focus-within:ring-[var(--pf-accent)] focus-within:ring-offset-2">
+            <label htmlFor="consent-sensitive-health" className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold">
               <input
                 id="consent-sensitive-health"
                 type="checkbox"

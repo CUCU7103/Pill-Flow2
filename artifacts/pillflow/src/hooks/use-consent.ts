@@ -13,6 +13,8 @@ type ConsentState = {
 export function useConsent(userId?: string | null) {
   const [state, setState] = useState<ConsentState>({ userId: null, status: null, loading: true, error: null });
   const requestVersion = useRef(0);
+  const latestUserId = useRef(userId);
+  latestUserId.current = userId;
 
   const reload = useCallback(async (targetUserId = userId) => {
     if (!targetUserId) return;
@@ -46,8 +48,11 @@ export function useConsent(userId?: string | null) {
 
   const save = useCallback(async (types: ConsentType[]) => {
     if (!userId) throw new Error("로그인이 필요합니다.");
+    const requestVersionAtStart = ++requestVersion.current;
     const status = await recordConsents(userId, types);
-    setState({ userId, status, loading: false, error: null });
+    if (requestVersionAtStart === requestVersion.current && latestUserId.current === userId) {
+      setState({ userId, status, loading: false, error: null });
+    }
     return status;
   }, [userId]);
 

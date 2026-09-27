@@ -9,6 +9,8 @@ export interface ConsentStatus {
   photoAnalysis: boolean;
 }
 
+export const CONSENT_VERSION_UPDATE_MESSAGE = "앱을 최신 버전으로 업데이트해 주세요.";
+
 /** 앱 시작에는 연령 확인과 민감정보 동의가 모두 필요하다. */
 export function canStartWithConsent(ageOver14: boolean, sensitiveHealth: boolean): boolean {
   return ageOver14 && sensitiveHealth;
@@ -24,6 +26,27 @@ export function needsPhotoConsent(photoAnalysis: boolean | null | undefined): bo
   return !photoAnalysis;
 }
 
+/** 필수 동의 API가 현재 정책 버전과 맞지 않는 오류인지 확인한다. */
+export function isConsentVersionMismatchError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "CONSENT_VERSION_MISMATCH");
+}
+
+/** 사진 동의 저장이 성공한 경우에만 촬영을 시작하고, 저장 실패는 결과로 돌려준다. */
+export async function savePhotoConsentThenStart(
+  saveConsent: () => Promise<unknown>,
+  startPhoto: () => Promise<void>,
+): Promise<{ consentSaved: true } | { consentSaved: false; error: unknown }> {
+  try {
+    await saveConsent();
+  } catch (error) {
+    return { consentSaved: false, error };
+  }
+
+  await startPhoto();
+  return { consentSaved: true };
+}
+
+/** API 오류 code가 필수 동의 누락인지 확인한다. */
 export function isConsentRequiredError(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "CONSENT_REQUIRED");
 }

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 
@@ -20,6 +21,19 @@ export function PhotoConsentModal({
   onAgree: () => void;
   onCancel: () => void;
 }) {
+  useEffect(() => {
+    if (saving) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onCancel();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [saving, onCancel]);
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
@@ -48,6 +62,7 @@ export function PhotoConsentModal({
           <button
             type="button"
             onClick={onCancel}
+            autoFocus
             disabled={saving}
             className="min-h-12 flex-1 rounded-2xl border border-pf-divider px-4 py-3 font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pf-accent)] disabled:opacity-50"
           >

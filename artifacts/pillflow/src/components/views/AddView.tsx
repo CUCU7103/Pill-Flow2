@@ -24,7 +24,12 @@ import { useTheme } from "@/hooks/use-theme";
 import { FormField } from "@/components/common/FormField";
 import { TimePicker } from "@/components/modals/TimePicker";
 import { MED_COLORS, DAY_KEYS_MON_FIRST } from "@/constants";
-import { needsPhotoConsent } from "@/lib/consentUtils";
+import {
+  CONSENT_VERSION_UPDATE_MESSAGE,
+  isConsentVersionMismatchError,
+  needsPhotoConsent,
+  savePhotoConsentThenStart,
+} from "@/lib/consentUtils";
 import type { Medication, MedType } from "@/types";
 import { getDoseUnit } from "@/types";
 
@@ -159,14 +164,23 @@ export function AddView({
     if (photoConsentSaving) return;
     setPhotoConsentSaving(true);
     setPhotoConsentError(null);
+    let result: Awaited<ReturnType<typeof savePhotoConsentThenStart>>;
     try {
-      await onPhotoConsent();
-      setPhotoConsentOpen(false);
-      await photo.start();
+      result = await savePhotoConsentThenStart(onPhotoConsent, async () => {
+        setPhotoConsentOpen(false);
+        await photo.start();
+      });
     } catch {
-      setPhotoConsentError("동의를 저장하지 못했어요. 다시 시도해 주세요.");
+      toast.error("카메라를 열지 못했어요. 다시 시도해주세요.");
+      return;
     } finally {
       setPhotoConsentSaving(false);
+    }
+
+    if (!result.consentSaved) {
+      setPhotoConsentError(isConsentVersionMismatchError(result.error)
+        ? CONSENT_VERSION_UPDATE_MESSAGE
+        : "동의를 저장하지 못했어요. 다시 시도해 주세요.");
     }
   }, [photoConsentSaving, onPhotoConsent, photo.start]);
 

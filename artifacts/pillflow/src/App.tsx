@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
@@ -27,7 +27,7 @@ function LoadingSpinner() {
     <div className="h-full w-full flex items-center justify-center bg-pf-bg">
       <div className="text-center">
         <div className="w-10 h-10 border-4 border-[var(--pf-accent)] border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="mt-4 text-pf-subtext font-medium">정보를 불러오고 있어요</p>
+        <p className="mt-4 text-pf-subtext font-medium">약 정보를 불러오고 있어요</p>
       </div>
     </div>
   );
@@ -35,20 +35,56 @@ function LoadingSpinner() {
 
 export default function App() {
   const [dark, setDark] = usePersisted<boolean>("pillflow_dark", false);
+
+  // html 요소에 dark 클래스 동기화 (인증 여부와 무관하게 항상 적용)
   useDarkMode(dark);
 
+  // 인증 상태 관리
   const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
   const consent = useConsent(user?.id);
+  const consentRequiredCount = useRef(0);
+  const activeUserId = useRef<string | null>(null);
+  const [consentGuardError, setConsentGuardError] = useState(false);
+
+  useEffect(() => {
+    if (activeUserId.current === (user?.id ?? null)) return;
+    activeUserId.current = user?.id ?? null;
+    consentRequiredCount.current = 0;
+    setConsentGuardError(false);
+  }, [user?.id]);
+
   const handleConsentRequired = useCallback(() => {
+    consentRequiredCount.current++;
+    if (consentRequiredCount.current >= 2) {
+      setConsentGuardError(true);
+      return;
+    }
     void consent.reload();
   }, [consent.reload]);
+
+  const handleConsentAgree = useCallback(async (types: ConsentType[]) => {
+    const status = await consent.save(types);
+    consentRequiredCount.current = 0;
+    setConsentGuardError(false);
+    return status;
+  }, [consent.save]);
+
+  const retryConsent = useCallback(() => {
+    consentRequiredCount.current = 0;
+    setConsentGuardError(false);
+    void consent.reload();
+  }, [consent.reload]);
+
   const recordPhotoConsent = useCallback(() => consent.save(["photo_analysis"]), [consent.save]);
 
+  // Google OAuth 세션 확인 중
   if (authLoading) return <LoadingSpinner />;
+
+  // 미로그인 → 로그인 화면 표시
   if (!user) return <LoginView onSignIn={signInWithGoogle} />;
   if (consent.loading) return <LoadingSpinner />;
 
-  if (consent.error) {
+  if (consent.error || consentGuardError) {
     return (
       <main className="min-h-full bg-pf-bg flex items-center justify-center px-6">
         <div className="w-full max-w-sm rounded-3xl bg-pf-card border border-pf-divider p-6 text-center">
@@ -56,7 +92,7 @@ export default function App() {
           <p className="mt-2 text-sm text-pf-subtext">연결을 확인한 뒤 다시 시도해 주세요.</p>
           <button
             type="button"
-            onClick={() => void consent.reload()}
+            onClick={retryConsent}
             className="mt-6 min-h-12 w-full rounded-2xl bg-[var(--pf-action)] text-white font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pf-accent)]"
           >
             다시 시도
@@ -71,7 +107,7 @@ export default function App() {
       <ConsentView
         status={consent.status}
         dark={dark}
-        onAgree={(types: ConsentType[]) => consent.save(types)}
+        onAgree={handleConsentAgree}
         onSignOut={signOut}
       />
     );
@@ -113,72 +149,59 @@ function AuthenticatedApp({
   const [notif, setNotif] = usePersisted<boolean>("pillflow_notif", true);
   const [notifCategories, setNotifCategories] = usePersisted<NotifCategories>(
     "pillflow_notif_categories",
-    { morning: true, lunch: true, evening: true },
+    { morning: true, lunch: true, evening: true }
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const {
-    meds,
-    loading: medsLoading,
-    error: medsError,
-    addMed,
-    deleteMed,
-    toggleMed,
-    resetAll,
-    refetch: refetchMeds,
-  } = useMedications(user.id, onConsentRequired);
+  // Supabase 기반 약 데이터 (로그인 후에만 사용)
+  // user.id를 전달해 RLS insert 시 user_id가 포함되도록 함
+  const { meds, loading: medsLoading, error: medsError, addMed, deleteMed, toggleMed, resetAll, refetch: refetchMeds } = useMedications(user.id, onConsentRequired);
+
+  // 복약 알림 스케줄링 (네이티브 앱에서만 동작)
   useNotifications(meds, notif, notifCategories);
+
+  // 자정이 지나면 복약 데이터 재조회 (completed 상태 리셋)
   useDayChange(refetchMeds);
 
-  const handleToggle = useCallback(
-    async (id: string) => {
-      const med = meds.find((m) => m.id === id);
-      try {
-        await toggleMed(id);
-        if (med) {
-          toast.dismiss();
-          toast.success(med.completed ? `${med.name} 복용 취소` : `${med.name} 복용 완료`);
-        }
-      } catch {
+  const handleToggle = useCallback(async (id: string) => {
+    const med = meds.find((m) => m.id === id);
+    try {
+      await toggleMed(id);
+      if (med) {
+        // 이전 토스트를 모두 제거하고 새 토스트 표시 (중복 쌓임 방지)
         toast.dismiss();
-        toast.error("처리에 실패했습니다. 다시 시도해주세요.");
+        toast.success(med.completed ? `${med.name} 복용 취소` : `${med.name} 복용 완료`);
       }
-    },
-    [meds, toggleMed],
-  );
+    } catch {
+      toast.dismiss();
+      toast.error("처리에 실패했습니다. 다시 시도해주세요.");
+    }
+  }, [meds, toggleMed]);
 
-  const handleDelete = useCallback(
-    async (id: string) => {
-      const med = meds.find((m) => m.id === id);
-      try {
-        await deleteMed(id);
-        if (med) toast.success(`${med.name} 삭제됨`);
-      } catch {
-        toast.error("삭제에 실패했습니다. 다시 시도해주세요.");
-      }
-    },
-    [meds, deleteMed],
-  );
+  const handleDelete = useCallback(async (id: string) => {
+    const med = meds.find((m) => m.id === id);
+    try {
+      await deleteMed(id);
+      if (med) toast.success(`${med.name} 삭제됨`);
+    } catch {
+      toast.error("삭제에 실패했습니다. 다시 시도해주세요.");
+    }
+  }, [meds, deleteMed]);
 
-  const handleAdd = useCallback(
-    async (m: Omit<Medication, "id" | "completed">) => {
-      await addMed(m);
-      toast.success(`${m.name} 추가됨`);
-    },
-    [addMed],
-  );
+  const handleAdd = useCallback(async (m: Omit<Medication, "id" | "completed">) => {
+    await addMed(m); // 실패 시 throw → AddView에서 에러 토스트 처리
+    toast.success(`${m.name} 추가됨`);
+  }, [addMed]);
 
   const handleToggleNotif = useCallback(() => {
     setNotif((prev) => !prev);
-  }, [setNotif]);
+  }, []);
 
-  const handleToggleCategory = useCallback(
-    (key: keyof NotifCategories) => {
-      setNotifCategories((prev) => ({ ...prev, [key]: !prev[key] }));
-    },
-    [setNotifCategories],
-  );
+  const handleToggleCategory = useCallback((key: keyof NotifCategories) => {
+    setNotifCategories((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, [setNotifCategories]);
 
+  // Android 뒤로가기 버튼 처리 (네이티브 앱에서만 동작)
   useAndroidBackButton(view, settingsOpen, {
     onNavigateToday: () => setView("today"),
     onCloseSettings: () => setSettingsOpen(false),
@@ -194,6 +217,7 @@ function AuthenticatedApp({
     }
   }, [signOut]);
 
+  // 약 데이터 로딩 중
   if (medsLoading) return <LoadingSpinner />;
 
   if (medsError && meds.length === 0) {
@@ -202,23 +226,24 @@ function AuthenticatedApp({
         <div className="w-full max-w-sm rounded-3xl bg-pf-card border border-pf-divider p-6 text-center">
           <h1 className="text-xl font-bold text-pf-text">약 정보를 불러오지 못했어요</h1>
           <p className="mt-2 text-sm text-pf-subtext">연결을 확인한 뒤 다시 시도해 주세요.</p>
-          <button
-            type="button"
-            onClick={() => void refetchMeds()}
-            className="mt-6 min-h-12 w-full rounded-2xl bg-[var(--pf-action)] text-white font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pf-accent)]"
-          >
-            다시 시도
-          </button>
+          <button type="button" onClick={() => void refetchMeds()} className="mt-6 min-h-12 w-full rounded-2xl bg-[var(--pf-action)] text-white font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pf-accent)]">다시 시도</button>
         </div>
       </main>
     );
   }
 
+  // 오늘 요일 키 계산 (DAY_KEYS_SUN_FIRST는 Date.getDay() 기준 일=0)
   const todayKey = DAY_KEYS_SUN_FIRST[new Date().getDay()];
+
+  // 오늘 복용해야 할 약만 필터링 (로그인 + 로딩 완료 후에만 실행)
   const todayMeds = meds.filter((m) => m.days.includes(todayKey));
 
   return (
-    <div className="h-full w-full flex flex-col" style={{ backgroundColor: "var(--pf-bg)" }}>
+    <div
+      className="h-full w-full flex flex-col"
+      style={{ backgroundColor: "var(--pf-bg)" }}
+    >
+      {/* 메인 컨텐츠 */}
       <main className="flex-1 overflow-hidden">
         <AnimatePresence mode="wait">
           {view === "today" && (
@@ -273,7 +298,10 @@ function AuthenticatedApp({
         </AnimatePresence>
       </main>
 
+      {/* 하단 네비게이션 */}
       <BottomNav view={view} setView={setView} dark={dark} />
+
+      {/* 설정 모달 */}
       <AnimatePresence>
         {settingsOpen && (
           <SettingsModal
