@@ -9,6 +9,16 @@ export interface ConsentStatus {
   photoAnalysis: boolean;
 }
 
+/** API 응답이 동의 상태 계약을 충족하는지 런타임에서 확인한다. */
+export function isConsentStatus(value: unknown): value is ConsentStatus {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const status = value as Record<string, unknown>;
+  return typeof status.policyVersion === "string"
+    && typeof status.ageOver14 === "boolean"
+    && typeof status.sensitiveHealth === "boolean"
+    && typeof status.photoAnalysis === "boolean";
+}
+
 export const CONSENT_VERSION_UPDATE_MESSAGE = "앱을 최신 버전으로 업데이트해 주세요.";
 
 /** 앱 시작에는 연령 확인과 민감정보 동의가 모두 필요하다. */
@@ -18,7 +28,10 @@ export function canStartWithConsent(ageOver14: boolean, sensitiveHealth: boolean
 
 /** 연령 확인과 민감정보 처리 동의가 모두 현재 상태에 기록됐는지 확인한다. */
 export function isConsentComplete(status: Pick<ConsentStatus, "ageOver14" | "sensitiveHealth"> | null | undefined): boolean {
-  return Boolean(status?.ageOver14 && status.sensitiveHealth);
+  return typeof status?.ageOver14 === "boolean"
+    && typeof status.sensitiveHealth === "boolean"
+    && status.ageOver14
+    && status.sensitiveHealth;
 }
 
 /** 사진 분석에 동의하지 않았다면 촬영 전에 별도 동의를 받는다. */

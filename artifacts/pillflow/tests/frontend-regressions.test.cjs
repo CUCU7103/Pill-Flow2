@@ -21,8 +21,22 @@ function hookRuntime(initialStates = []) {
       const index = cursor++;
       return slots[index] ??= { current: initial };
     },
-    useCallback(fn) { return fn; },
-    useMemo(fn) { return fn(); },
+    useCallback(fn, deps) {
+      const index = cursor++;
+      const previous = slots[index];
+      if (!previous || !deps || !previous.deps || deps.length !== previous.deps.length || deps.some((dep, i) => dep !== previous.deps[i])) {
+        slots[index] = { deps, value: fn };
+      }
+      return slots[index].value;
+    },
+    useMemo(fn, deps) {
+      const index = cursor++;
+      const previous = slots[index];
+      if (!previous || !deps || !previous.deps || deps.length !== previous.deps.length || deps.some((dep, i) => dep !== previous.deps[i])) {
+        slots[index] = { deps, value: fn() };
+      }
+      return slots[index].value;
+    },
     useEffect(fn, deps) {
       const index = cursor++;
       const previous = slots[index];
@@ -129,7 +143,7 @@ test('consent API repository uses the expected URL, methods, and policy-version 
   const calls = [];
   const repository = load('lib/consentApiRepository.ts', {
     '@/lib/apiClient': { apiRequest: async (...args) => { calls.push(args); return { policyVersion: '2026-09-27', ageOver14: true, sensitiveHealth: true, photoAnalysis: false }; } },
-    '@/lib/consentUtils': { POLICY_VERSION: '2026-09-27' },
+    '@/lib/consentUtils': load('lib/consentUtils.ts'),
   });
 
   await repository.fetchConsentStatus('user-1');
@@ -154,8 +168,88 @@ test('consent decisions require both required checks and request photo consent i
   assert.equal(consent.isConsentComplete({ ageOver14: true, sensitiveHealth: true }), true);
   assert.equal(consent.isConsentComplete({ ageOver14: true, sensitiveHealth: false }), false);
   assert.equal(consent.isConsentComplete(null), false);
+  assert.equal(consent.isConsentComplete({ ageOver14: 'true', sensitiveHealth: true }), false);
   assert.equal(consent.needsPhotoConsent(false), true);
   assert.equal(consent.needsPhotoConsent(true), false);
+});
+
+test('consent API responses fail closed when fields do not match the status contract', async () => {
+  const consent = load('lib/consentUtils.ts');
+  const validStatus = { policyVersion: '2026-09-27', ageOver14: true, sensitiveHealth: true, photoAnalysis: false };
+  assert.equal(consent.isConsentStatus(validStatus), true);
+  assert.equal(consent.isConsentStatus({ ...validStatus, sensitiveHealth: 'false' }), false);
+  assert.equal(consent.isConsentStatus({ ...validStatus, policyVersion: 1 }), false);
+
+  const repository = load('lib/consentApiRepository.ts', {
+    '@/lib/apiClient': { apiRequest: async () => ({ ...validStatus, sensitiveHealth: 'false' }) },
+    '@/lib/consentUtils': consent,
+  });
+  await assert.rejects(repository.fetchConsentStatus('user-1'), /동의 상태 응답이 올바르지 않습니다/);
+  await assert.rejects(repository.recordConsents('user-1', ['age_over_14']), /동의 상태 응답이 올바르지 않습니다/);
+});
+
+test('background consent revalidation keeps the existing status until the fresh result arrives', async () => {
+  const runtime = hookRuntime();
+  const requests = [];
+  const completeStatus = { policyVersion: '2026-09-27', ageOver14: true, sensitiveHealth: true, photoAnalysis: false };
+  const incompleteStatus = { ...completeStatus, sensitiveHealth: false };
+  const { useConsent } = load('hooks/use-consent.ts', {
+    react: runtime.react,
+    '@/lib/consentDataSource': {
+      fetchConsentStatus: () => new Promise(resolve => requests.push(resolve)),
+      recordConsents: async () => completeStatus,
+    },
+  });
+
+  let consent = runtime.render(() => useConsent('user-1'));
+  requests[0](completeStatus);
+  await new Promise(resolve => setImmediate(resolve));
+  runtime.flush();
+  consent = runtime.render(() => useConsent('user-1'));
+  assert.deepEqual(consent.status, completeStatus);
+  assert.equal(consent.loading, false);
+
+  const revalidation = consent.reload();
+  runtime.flush();
+  consent = runtime.render(() => useConsent('user-1'));
+  assert.deepEqual(consent.status, completeStatus);
+  assert.equal(consent.loading, false);
+  assert.equal(consent.revalidating, true);
+
+  requests[1](incompleteStatus);
+  await revalidation;
+  runtime.flush();
+  consent = runtime.render(() => useConsent('user-1'));
+  assert.deepEqual(consent.status, incompleteStatus);
+  assert.equal(consent.revalidating, false);
+});
+
+test('consent save applies for the current user even when a later reload is pending', async () => {
+  const runtime = hookRuntime();
+  const requests = [];
+  let resolveSave;
+  const savedStatus = { policyVersion: '2026-09-27', ageOver14: true, sensitiveHealth: true, photoAnalysis: true };
+  const { useConsent } = load('hooks/use-consent.ts', {
+    react: runtime.react,
+    '@/lib/consentDataSource': {
+      fetchConsentStatus: () => new Promise(resolve => requests.push(resolve)),
+      recordConsents: () => new Promise(resolve => { resolveSave = resolve; }),
+    },
+  });
+
+  const consent = runtime.render(() => useConsent('user-1'));
+  const saving = consent.save(['photo_analysis']);
+  const reloading = consent.reload();
+  resolveSave(savedStatus);
+  await saving;
+  runtime.flush();
+  const afterSave = runtime.render(() => useConsent('user-1'));
+  assert.deepEqual(afterSave.status, savedStatus);
+
+  requests[0](savedStatus);
+  requests[1](savedStatus);
+  await reloading;
+  await new Promise(resolve => setImmediate(resolve));
 });
 
 test('consent error utility recognizes current consent API errors only', () => {
@@ -253,6 +347,35 @@ test('Supabase consent repository binds policy version and ignores duplicate use
   assert.ok(equalityChecks.some(([column, value]) => column === 'policy_version' && value === '2026-09-27'));
   assert.deepEqual(upsertCall.rows, [{ user_id: 'user-7', consent_type: 'sensitive_health', policy_version: '2026-09-27' }]);
   assert.deepEqual(upsertCall.options, { onConflict: 'user_id,consent_type,policy_version', ignoreDuplicates: true });
+});
+
+test('Supabase reset removes only the current user sensitive and photo consent rows', async () => {
+  const calls = [];
+  const repository = load('lib/medicationRepository.ts', {
+    '@/lib/supabase': {
+      supabase: {
+        from(table) {
+          let selection;
+          const query = {
+            select(columns) { selection = columns; calls.push([table, 'select', columns]); return this; },
+            delete() { calls.push([table, 'delete']); return this; },
+            eq(column, value) { calls.push([table, 'eq', column, value]); return this; },
+            in(column, values) { calls.push([table, 'in', column, values]); return Promise.resolve({ error: null }); },
+            then(resolve, reject) {
+              return Promise.resolve({ data: selection === 'id' ? [{ id: 'med-1' }] : [], error: null }).then(resolve, reject);
+            },
+          };
+          return query;
+        },
+      },
+    },
+    '@/lib/medicationMapper': { getToday: () => '2026-09-27', toMedication: row => row },
+  });
+
+  await repository.resetAllMedications('user-7');
+
+  assert.ok(calls.some(([table, action, column, userId]) => table === 'user_consents' && action === 'eq' && column === 'user_id' && userId === 'user-7'));
+  assert.ok(calls.some(([table, action, column, types]) => table === 'user_consents' && action === 'in' && column === 'consent_type' && types.join(',') === 'sensitive_health,photo_analysis'));
 });
 
 test('medication API repository uses local dates and intake HTTP methods', async () => {
@@ -452,6 +575,79 @@ test('native notifications do not schedule after an in-flight permission request
   await new Promise(resolve => setImmediate(resolve));
 
   assert.deepEqual(scheduled, []);
+});
+
+test('turning notifications off invalidates an in-flight schedule', async () => {
+  const runtime = hookRuntime();
+  let resolvePermissions;
+  const permissionRequest = new Promise(resolve => { resolvePermissions = resolve; });
+  const scheduled = [];
+  const { useNotifications } = load('hooks/use-notifications.ts', {
+    react: runtime.react,
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => true } },
+    '@capacitor/app': { App: { addListener: async () => ({ remove() {} }) } },
+    '@capacitor/local-notifications': {
+      LocalNotifications: {
+        requestPermissions: () => permissionRequest,
+        createChannel: async () => {},
+        deleteChannel: async () => {},
+        checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }),
+        getPending: async () => ({ notifications: [] }),
+        cancel: async () => {},
+        schedule: async request => scheduled.push(request),
+      },
+    },
+    '@/lib/notificationSchedule': { buildMedicationNotifications: () => [{ id: 457, title: '해제된 알림' }] },
+  });
+
+  const scheduledMedication = { ...medication, times: ['08:00'], days: ['mon'] };
+  const categories = { morning: true, lunch: true, evening: true };
+  runtime.render(() => useNotifications([scheduledMedication], true, categories));
+  runtime.render(() => useNotifications([scheduledMedication], false, categories));
+  resolvePermissions({ display: 'granted' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(scheduled, []);
+  runtime.dispose();
+});
+
+test('a newer medication schedule invalidates an older in-flight schedule', async () => {
+  const runtime = hookRuntime();
+  const permissionResolvers = [];
+  const scheduled = [];
+  const { useNotifications } = load('hooks/use-notifications.ts', {
+    react: runtime.react,
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => true } },
+    '@capacitor/app': { App: { addListener: async () => ({ remove() {} }) } },
+    '@capacitor/local-notifications': {
+      LocalNotifications: {
+        requestPermissions: () => new Promise(resolve => permissionResolvers.push(resolve)),
+        createChannel: async () => {},
+        deleteChannel: async () => {},
+        checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }),
+        getPending: async () => ({ notifications: [] }),
+        cancel: async () => {},
+        schedule: async request => scheduled.push(request),
+      },
+    },
+    '@/lib/notificationSchedule': {
+      buildMedicationNotifications: meds => meds.map(med => ({ id: med.id, title: med.name })),
+    },
+  });
+
+  const categories = { morning: true, lunch: true, evening: true };
+  const oldMedication = { ...medication, id: 101, name: '삭제된 약', times: ['08:00'], days: ['mon'] };
+  const currentMedication = { ...medication, id: 202, name: '현재 약', times: ['09:00'], days: ['tue'] };
+  runtime.render(() => useNotifications([oldMedication], true, categories));
+  runtime.render(() => useNotifications([currentMedication], true, categories));
+
+  permissionResolvers[1]({ display: 'granted' });
+  await new Promise(resolve => setImmediate(resolve));
+  permissionResolvers[0]({ display: 'granted' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(scheduled.flatMap(request => request.notifications.map(notification => notification.id)), [202]);
+  runtime.dispose();
 });
 
 test('off-day medicines can be inspected and deleted without changing today progress', () => {

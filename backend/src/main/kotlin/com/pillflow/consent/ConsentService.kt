@@ -50,7 +50,7 @@ class ConsentService(private val repository: ConsentRepository) {
         }
 
         // 유니크 제약과 ON CONFLICT DO NOTHING이 반복 제출을 멱등 처리한다.
-        types.forEach { repository.insert(userId, it, CURRENT_POLICY_VERSION) }
+        types.sortedBy { it.ordinal }.forEach { repository.insert(userId, it, CURRENT_POLICY_VERSION) }
         return getStatus(userId)
     }
 }

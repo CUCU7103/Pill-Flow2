@@ -357,6 +357,13 @@ class BackendIntegrationTest @Autowired constructor(
             .andExpect(jsonPath("$.message").value("인증이 필요합니다."))
     }
 
+    @Test fun `sub가 UUID가 아니면 JSON 401을 반환한다`() {
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer ${SecurityTestJwt.token(subject = "not-a-uuid")}"))
+            .andExpect(status().isUnauthorized)
+            .andExpect(content().contentType("application/json;charset=UTF-8"))
+            .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+    }
+
     @Test fun `잘못된 서명 issuer audience와 만료 토큰은 거부한다`() {
         listOf(
             SecurityTestJwt.token(signingKey = SecurityTestJwt.otherSigningKey),
@@ -446,10 +453,11 @@ private object SecurityTestJwt {
         issuer: String = this.issuer,
         audience: List<String> = listOf("authenticated"),
         expiresAt: Instant = Instant.now().plusSeconds(300),
+        subject: String = this.userId,
     ): String {
         val claims = JWTClaimsSet.Builder()
             .issuer(issuer)
-            .subject(userId)
+            .subject(subject)
             .audience(audience)
             .issueTime(Date.from(Instant.now().minusSeconds(5)))
             .expirationTime(Date.from(expiresAt))
