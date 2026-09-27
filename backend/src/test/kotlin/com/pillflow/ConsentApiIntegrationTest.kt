@@ -1,8 +1,10 @@
 package com.pillflow
 
+import java.net.URI
 import java.util.UUID
 import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
@@ -87,6 +89,24 @@ class ConsentApiIntegrationTest : ApiIntegrationTestSupport() {
     }
 
     @Test
+    fun `사진 분석 동의는 연령 확인 없이 별도로 기록한다`() {
+        val userId = UUID.randomUUID()
+        addUser(userId)
+
+        mockMvc.perform(
+            post("/api/v1/consents")
+                .header("Authorization", authorization(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"policyVersion":"2026-09-27","types":["photo_analysis"]}"""),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.ageOver14").value(false))
+            .andExpect(jsonPath("$.sensitiveHealth").value(false))
+            .andExpect(jsonPath("$.photoAnalysis").value(true))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=?", Int::class.java, userId))
+    }
+
+    @Test
     fun `민감정보 동의가 필요한 경로만 사용자별로 차단한다`() {
         val userA = UUID.randomUUID()
         val userB = UUID.randomUUID()
@@ -146,6 +166,51 @@ class ConsentApiIntegrationTest : ApiIntegrationTestSupport() {
         )
             .andExpect(status().isOk)
             .andExpect(header().string("Access-Control-Allow-Origin", "https://client.test"))
+    }
+
+    @Test
+    fun `이전 버전의 동의만 있으면 복약 경로를 차단한다`() {
+        val userId = UUID.randomUUID()
+        addUser(userId)
+        jdbc.update(
+            """
+            INSERT INTO public.user_consents(user_id, consent_type, policy_version)
+            VALUES (?, 'age_over_14', '2026-01-01'), (?, 'sensitive_health', '2026-01-01')
+            """.trimIndent(),
+            userId,
+            userId,
+        )
+
+        mockMvc.perform(
+            get("/api/v1/medications").param("date", "2026-09-27").header("Authorization", authorization(userId)),
+        )
+            .andExpect(status().isForbidden)
+            .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
+    }
+
+    @Test
+    fun `health는 동의 없이 접근할 수 있다`() {
+        mockMvc.perform(get("/actuator/health"))
+            .andExpect(status().isOk)
+    }
+
+    @Test
+    fun `퍼센트 인코딩된 민감정보 경로도 동의 없이 차단한다`() {
+        val userId = UUID.randomUUID()
+        addUser(userId)
+        val authorization = authorization(userId)
+        val uris = listOf(
+            URI.create("http://localhost/api/v1/%6Dedications?date=2026-09-27"),
+            URI.create("http://localhost/api/v1/stat%73/weekly?today=2026-09-27&tz=Asia%2FSeoul"),
+        )
+
+        val responses = uris.map { uri ->
+            mockMvc.perform(get(uri).header("Authorization", authorization)).andReturn().response
+        }
+        assertEquals(listOf(403, 403), responses.map { it.status })
+        responses.forEach { response ->
+            assertTrue(response.contentAsString.contains("\"code\":\"CONSENT_REQUIRED\""))
+        }
     }
 
     companion object {

@@ -13,6 +13,7 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import com.pillflow.intake.MedicationLogRepository
 import com.pillflow.medication.MedicationRepository
+import com.pillflow.consent.CURRENT_POLICY_VERSION
 import com.pillflow.security.supabaseJwtValidator
 import java.time.Instant
 import java.util.Date
@@ -68,11 +69,13 @@ abstract class ApiIntegrationTestSupport {
         jdbc.update(
             """
             INSERT INTO public.user_consents(user_id, consent_type, policy_version)
-            VALUES (?, 'age_over_14', '2026-09-27'), (?, 'sensitive_health', '2026-09-27')
+            VALUES (?, 'age_over_14', ?), (?, 'sensitive_health', ?)
             ON CONFLICT (user_id, consent_type, policy_version) DO NOTHING
             """.trimIndent(),
             userId,
+            CURRENT_POLICY_VERSION,
             userId,
+            CURRENT_POLICY_VERSION,
         )
     }
 

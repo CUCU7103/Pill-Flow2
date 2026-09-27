@@ -8,6 +8,7 @@ CREATE TABLE public.user_consents (
 );
 
 ALTER TABLE public.user_consents ENABLE ROW LEVEL SECURITY;
+-- Supabase 기본 권한이 새 테이블에 anon·authenticated의 ALL을 부여하므로 회수한 뒤 필요한 권한만 다시 준다.
 REVOKE ALL ON public.user_consents FROM anon, authenticated;
 GRANT SELECT, INSERT ON public.user_consents TO authenticated;
 
@@ -16,8 +17,11 @@ CREATE POLICY user_consents_select ON public.user_consents FOR SELECT TO authent
 CREATE POLICY user_consents_insert ON public.user_consents FOR INSERT TO authenticated
   WITH CHECK ((select auth.uid()) = user_id);
 
+-- 환경에 따라 API role이 없을 수 있으므로 존재할 때만 런타임 권한을 부여한다.
 DO $$ BEGIN
   IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'pillflow_api') THEN
     GRANT SELECT, INSERT ON public.user_consents TO pillflow_api;
+  ELSE
+    RAISE NOTICE 'pillflow_api role 없음: user_consents 권한 부여 생략';
   END IF;
 END $$;

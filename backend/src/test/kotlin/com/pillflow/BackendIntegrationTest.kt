@@ -276,14 +276,14 @@ class BackendIntegrationTest @Autowired constructor(
         assertEquals(listOf("other"), jdbc.queryForList("SELECT name FROM public.medications", String::class.java))
         assertEquals(0, jdbc.update("UPDATE public.medications SET name='changed' WHERE id=?", ownerMedication))
         assertEquals(1, jdbc.update("UPDATE public.medications SET name='changed' WHERE id=?", otherMedication))
-        assertRlsViolation {
+        assertInsufficientPrivilegeSqlState {
             jdbc.update("UPDATE public.medications SET user_id=? WHERE id=?", owner, otherMedication)
         }
         assertEquals(0, jdbc.update("DELETE FROM public.medications WHERE id=?", ownerMedication))
         assertEquals(listOf(other.toString()), jdbc.queryForList("SELECT user_id::text FROM public.medication_logs", String::class.java))
         assertEquals(0, jdbc.update("DELETE FROM public.medication_logs WHERE id=?", ownerLog))
         assertEquals(1, jdbc.update("DELETE FROM public.medication_logs WHERE id=?", otherLog))
-        assertRlsViolation {
+        assertInsufficientPrivilegeSqlState {
             jdbc.update(
                 "INSERT INTO public.medication_logs(medication_id,user_id,taken_on) VALUES (?, ?, '2026-09-27')",
                 ownerMedication,
@@ -312,21 +312,22 @@ class BackendIntegrationTest @Autowired constructor(
             "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27')",
             owner,
         )
-        assertRlsViolation {
+        assertInsufficientPrivilegeSqlState {
             jdbc.update(
                 "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'sensitive_health','2026-09-27')",
                 other,
             )
         }
-        assertRlsViolation {
+        assertInsufficientPrivilegeSqlState {
             jdbc.update("UPDATE public.user_consents SET policy_version='future' WHERE user_id=?", owner)
         }
-        assertRlsViolation {
+        assertInsufficientPrivilegeSqlState {
             jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", owner)
         }
     }
 
-    private fun assertRlsViolation(action: () -> Unit) {
+    // RLS 위반과 권한 부재는 모두 PostgreSQL의 insufficient_privilege(42501)로 거부된다.
+    private fun assertInsufficientPrivilegeSqlState(action: () -> Unit) {
         val failure = assertThrows<DataAccessException> {
             jdbc.execute(ConnectionCallback { connection ->
                 val savepoint = connection.setSavepoint()

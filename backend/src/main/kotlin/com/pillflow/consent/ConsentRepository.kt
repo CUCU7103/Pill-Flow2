@@ -22,22 +22,22 @@ class ConsentRepository(private val jdbc: JdbcTemplate) {
             policyVersion,
         ) ?: false
 
-    fun hasRequiredConsents(userId: UUID, policyVersion: String): Boolean =
-        jdbc.queryForObject(
-            """
+    // 보호 대상 요청마다 현재 버전의 필수 항목이 모두 있는지 한 번의 EXISTS 조회로 확인한다.
+    fun hasRequiredConsents(userId: UUID, policyVersion: String): Boolean {
+        val placeholders = REQUIRED_TYPES.joinToString(", ") { "?" }
+        val sql = """
             SELECT EXISTS (
                 SELECT 1
                 FROM public.user_consents
                 WHERE user_id = ?
                   AND policy_version = ?
-                  AND consent_type IN ('age_over_14', 'sensitive_health')
-                HAVING pg_catalog.count(DISTINCT consent_type) = 2
+                  AND consent_type IN ($placeholders)
+                HAVING pg_catalog.count(DISTINCT consent_type) = ?
             )
-            """.trimIndent(),
-            Boolean::class.java,
-            userId,
-            policyVersion,
-        ) ?: false
+        """.trimIndent()
+        val parameters = arrayOf<Any>(userId, policyVersion, *REQUIRED_TYPES.toTypedArray(), REQUIRED_TYPES.size)
+        return jdbc.queryForObject(sql, Boolean::class.java, *parameters) ?: false
+    }
 
     fun insert(userId: UUID, type: ConsentType, policyVersion: String) {
         jdbc.update(
@@ -49,6 +49,13 @@ class ConsentRepository(private val jdbc: JdbcTemplate) {
             userId,
             type.databaseValue,
             policyVersion,
+        )
+    }
+
+    companion object {
+        private val REQUIRED_TYPES = listOf(
+            ConsentType.AGE_OVER_14.databaseValue,
+            ConsentType.SENSITIVE_HEALTH.databaseValue,
         )
     }
 }

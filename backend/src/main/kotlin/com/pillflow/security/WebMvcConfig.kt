@@ -17,6 +17,7 @@ class WebMvcConfig(
     }
 
     override fun addInterceptors(registry: InterceptorRegistry) {
+        // 복약 데이터 API만 여기서 보호하므로 /me, /consents, /actuator/health는 동의 없이 접근할 수 있다.
         registry.addInterceptor(consentInterceptor)
             .addPathPatterns(
                 "/api/v1/medications",

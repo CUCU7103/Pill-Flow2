@@ -40,6 +40,7 @@ class ConsentService(private val repository: ConsentRepository) {
         }?.toSet()
         if (types.isNullOrEmpty()) throw BusinessException(ErrorCode.INVALID_CONSENT)
 
+        // 민감정보 동의에는 현재 버전의 연령 확인이 같은 요청에 있거나 이미 기록되어야 한다.
         if (
             ConsentType.SENSITIVE_HEALTH in types &&
             ConsentType.AGE_OVER_14 !in types &&
@@ -48,6 +49,7 @@ class ConsentService(private val repository: ConsentRepository) {
             throw BusinessException(ErrorCode.INVALID_CONSENT)
         }
 
+        // 유니크 제약과 ON CONFLICT DO NOTHING이 반복 제출을 멱등 처리한다.
         types.forEach { repository.insert(userId, it, CURRENT_POLICY_VERSION) }
         return getStatus(userId)
     }
