@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put
@@ -186,6 +187,58 @@ class ConsentApiIntegrationTest : ApiIntegrationTestSupport() {
         )
             .andExpect(status().isForbidden)
             .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
+    }
+
+    @Test
+    fun `전체 초기화는 민감정보와 사진 동의를 철회하고 다른 사용자 동의와 연령 확인은 보존한다`() {
+        val owner = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        addUser(owner)
+        addUser(other)
+        jdbc.update(
+            """
+            INSERT INTO public.user_consents(user_id, consent_type, policy_version) VALUES
+              (?, 'age_over_14', '2026-09-27'),
+              (?, 'age_over_14', '2026-01-01'),
+              (?, 'sensitive_health', '2026-09-27'),
+              (?, 'sensitive_health', '2026-01-01'),
+              (?, 'photo_analysis', '2026-09-27'),
+              (?, 'photo_analysis', '2026-01-01')
+            """.trimIndent(),
+            owner, owner, owner, owner, owner, owner,
+        )
+        jdbc.update(
+            """
+            INSERT INTO public.user_consents(user_id, consent_type, policy_version) VALUES
+              (?, 'age_over_14', '2026-09-27'),
+              (?, 'sensitive_health', '2026-09-27'),
+              (?, 'photo_analysis', '2026-09-27')
+            """.trimIndent(),
+            other, other, other,
+        )
+        jdbc.update(
+            "INSERT INTO public.medications(user_id,name,dosage,type,times,days) VALUES (?,'초기화 약','1','tablet','{08:00}','{mon}')",
+            owner,
+        )
+
+        mockMvc.perform(delete("/api/v1/medications").header("Authorization", authorization(owner)))
+            .andExpect(status().isNoContent)
+
+        mockMvc.perform(get("/api/v1/consents").header("Authorization", authorization(owner)))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.ageOver14").value(true))
+            .andExpect(jsonPath("$.sensitiveHealth").value(false))
+            .andExpect(jsonPath("$.photoAnalysis").value(false))
+        mockMvc.perform(
+            get("/api/v1/medications").param("date", "2026-09-27").header("Authorization", authorization(owner)),
+        )
+            .andExpect(status().isForbidden)
+            .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
+
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=? AND consent_type='age_over_14'", Int::class.java, owner))
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=? AND consent_type IN ('sensitive_health','photo_analysis')", Int::class.java, owner))
+        assertEquals(3, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=?", Int::class.java, other))
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.medications WHERE user_id=?", Int::class.java, owner))
     }
 
     @Test

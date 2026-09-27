@@ -152,7 +152,11 @@ class BackendIntegrationTest @Autowired constructor(
             assertEquals(true, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
             assertEquals(true, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
         }
-        listOf("UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER").forEach { privilege ->
+        listOf("DELETE").forEach { privilege ->
+            assertEquals(true, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
+            assertEquals(true, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
+        }
+        listOf("UPDATE", "TRUNCATE", "REFERENCES", "TRIGGER").forEach { privilege ->
             assertEquals(false, hasPrivilege("authenticated", "user_consents", privilege), "authenticated $privilege user_consents")
             assertEquals(false, hasPrivilege("pillflow_api", "user_consents", privilege), "pillflow_api $privilege user_consents")
         }
@@ -294,7 +298,7 @@ class BackendIntegrationTest @Autowired constructor(
 
     @Test
     @org.springframework.transaction.annotation.Transactional
-    fun `동의 기록은 authenticated가 본인 행만 추가 조회하고 수정 삭제하지 못한다`() {
+    fun `동의 기록은 authenticated가 본인 행만 추가 조회 삭제하고 수정하지 못한다`() {
         val owner = UUID.randomUUID()
         val other = UUID.randomUUID()
         jdbc.update("INSERT INTO auth.users(id) VALUES (?), (?)", owner, other)
@@ -321,9 +325,11 @@ class BackendIntegrationTest @Autowired constructor(
         assertInsufficientPrivilegeSqlState {
             jdbc.update("UPDATE public.user_consents SET policy_version='future' WHERE user_id=?", owner)
         }
-        assertInsufficientPrivilegeSqlState {
-            jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", owner)
-        }
+        assertEquals(0, jdbc.update("DELETE FROM public.user_consents WHERE user_id=?", other))
+        assertEquals(1, jdbc.update("DELETE FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'", owner))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=?", Int::class.java, owner))
+        jdbc.execute("RESET ROLE")
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=?", Int::class.java, other))
     }
 
     // RLS 위반과 권한 부재는 모두 PostgreSQL의 insufficient_privilege(42501)로 거부된다.

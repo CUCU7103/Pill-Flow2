@@ -116,4 +116,11 @@ export async function resetAllMedications(userId: string): Promise<void> {
     .delete()
     .eq("user_id", userId);
   if (medsErr) throw medsErr;
+
+  const { error: consentsErr } = await supabase
+    .from("user_consents")
+    .delete()
+    .eq("user_id", userId)
+    .in("consent_type", ["sensitive_health", "photo_analysis"]);
+  if (consentsErr) throw consentsErr;
 }

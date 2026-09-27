@@ -52,6 +52,15 @@ class ConsentRepository(private val jdbc: JdbcTemplate) {
         )
     }
 
+    fun deleteSensitiveConsents(userId: UUID) {
+        jdbc.update(
+            "DELETE FROM public.user_consents WHERE user_id = ? AND consent_type IN (?, ?)",
+            userId,
+            ConsentType.SENSITIVE_HEALTH.databaseValue,
+            ConsentType.PHOTO_ANALYSIS.databaseValue,
+        )
+    }
+
     companion object {
         private val REQUIRED_TYPES = listOf(
             ConsentType.AGE_OVER_14.databaseValue,
