@@ -120,7 +120,6 @@ async function scheduleNotifications(meds: Medication[], categories: NotifCatego
     if (notifications.length === 0 || !isCurrentGeneration()) return;
 
     await LocalNotifications.schedule({ notifications });
-    if (!isCurrentGeneration()) return;
   } catch (error) {
     // 알림 권한 거부나 API 오류는 앱 동작에 영향 없이 무시
     console.warn("[PillFlow] 알림 스케줄링 실패:", error);
@@ -144,10 +143,10 @@ function cancelAllNotifications() {
   return cancelPendingNotifications(generation);
 }
 
-async function cancelPendingNotifications(generation?: number) {
+async function cancelPendingNotifications(generation: number) {
   try {
     const { notifications } = await LocalNotifications.getPending();
-    if (generation !== undefined && generation !== scheduleGeneration) return;
+    if (generation !== scheduleGeneration) return;
     if (notifications.length > 0) {
       await LocalNotifications.cancel({ notifications });
     }

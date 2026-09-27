@@ -15,9 +15,7 @@ export function useConsent(userId?: string | null) {
   const [state, setState] = useState<ConsentState>({ userId: null, status: null, loading: true, revalidating: false, error: null });
   const requestVersion = useRef(0);
   const latestUserId = useRef(userId);
-  const stateRef = useRef(state);
   latestUserId.current = userId;
-  stateRef.current = state;
 
   const reload = useCallback(async (targetUserId = userId) => {
     if (!targetUserId) return;
@@ -37,7 +35,7 @@ export function useConsent(userId?: string | null) {
         return {
           userId: targetUserId,
           status: preserveStatus ? current.status : null,
-          loading: !preserveStatus,
+          loading: false,
           revalidating: false,
           error: message,
         };

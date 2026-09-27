@@ -188,6 +188,45 @@ test('consent API responses fail closed when fields do not match the status cont
   await assert.rejects(repository.recordConsents('user-1', ['age_over_14']), /동의 상태 응답이 올바르지 않습니다/);
 });
 
+test('initial consent load failures stop loading and expose an error', async () => {
+  const invalidStatus = { policyVersion: '2026-09-27', ageOver14: true, sensitiveHealth: 'false', photoAnalysis: false };
+  const scenarios = [
+    {
+      name: 'fetch rejection',
+      fetchConsentStatus: async () => { throw new Error('network error'); },
+    },
+    {
+      name: 'invalid response',
+      fetchConsentStatus: async () => {
+        const repository = load('lib/consentApiRepository.ts', {
+          '@/lib/apiClient': { apiRequest: async () => invalidStatus },
+          '@/lib/consentUtils': load('lib/consentUtils.ts'),
+        });
+        return repository.fetchConsentStatus('user-1');
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const runtime = hookRuntime();
+    const { useConsent } = load('hooks/use-consent.ts', {
+      react: runtime.react,
+      '@/lib/consentDataSource': {
+        fetchConsentStatus: scenario.fetchConsentStatus,
+        recordConsents: async () => ({}),
+      },
+    });
+
+    runtime.render(() => useConsent('user-1'));
+    await new Promise(resolve => setImmediate(resolve));
+    runtime.flush();
+    const consent = runtime.render(() => useConsent('user-1'));
+
+    assert.equal(consent.loading, false, scenario.name);
+    assert.ok(consent.error, scenario.name);
+  }
+});
+
 test('background consent revalidation keeps the existing status until the fresh result arrives', async () => {
   const runtime = hookRuntime();
   const requests = [];

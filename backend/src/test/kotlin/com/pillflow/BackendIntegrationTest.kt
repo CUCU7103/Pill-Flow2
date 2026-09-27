@@ -332,6 +332,27 @@ class BackendIntegrationTest @Autowired constructor(
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=?", Int::class.java, other))
     }
 
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    fun `authenticated는 연령 동의는 유지하고 철회 대상 동의만 삭제할 수 있다`() {
+        val owner = UUID.randomUUID()
+        jdbc.update("INSERT INTO auth.users(id) VALUES (?)", owner)
+        jdbc.update(
+            "INSERT INTO public.user_consents(user_id,consent_type,policy_version) VALUES (?,'age_over_14','2026-09-27'), (?,'sensitive_health','2026-09-27')",
+            owner,
+            owner,
+        )
+
+        jdbc.execute("SET LOCAL ROLE authenticated")
+        jdbc.queryForObject("SELECT set_config('request.jwt.claim.sub', ?, true)", String::class.java, owner.toString())
+
+        assertEquals(0, jdbc.update("DELETE FROM public.user_consents WHERE user_id=? AND consent_type='age_over_14'", owner))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=? AND consent_type='age_over_14'", Int::class.java, owner))
+        assertEquals(1, jdbc.update("DELETE FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'", owner))
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM public.user_consents WHERE user_id=? AND consent_type='sensitive_health'", Int::class.java, owner))
+        jdbc.execute("RESET ROLE")
+    }
+
     // RLS 위반과 권한 부재는 모두 PostgreSQL의 insufficient_privilege(42501)로 거부된다.
     private fun assertInsufficientPrivilegeSqlState(action: () -> Unit) {
         val failure = assertThrows<DataAccessException> {

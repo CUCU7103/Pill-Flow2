@@ -18,7 +18,7 @@ CREATE POLICY user_consents_select ON public.user_consents FOR SELECT TO authent
 CREATE POLICY user_consents_insert ON public.user_consents FOR INSERT TO authenticated
   WITH CHECK ((select auth.uid()) = user_id);
 CREATE POLICY user_consents_delete ON public.user_consents FOR DELETE TO authenticated
-  USING ((select auth.uid()) = user_id);
+  USING ((select auth.uid()) = user_id AND consent_type IN ('sensitive_health','photo_analysis'));
 
 -- 환경에 따라 API role이 없을 수 있으므로 존재할 때만 런타임 권한을 부여한다.
 DO $$ BEGIN
